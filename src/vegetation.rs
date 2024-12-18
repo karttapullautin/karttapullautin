@@ -319,7 +319,7 @@ pub fn makevege(
                     draw_filled_rect_mut(
                         &mut imggr1,
                         Rect::at(
-                            ((x as f64 + 0.5) * block) as i32 - addition,
+                            ((x as f64 - 0.5) * block) as i32 - addition,
                             (((h - y as f64) - 0.5) * block) as i32 - addition,
                         )
                         .of_size(
