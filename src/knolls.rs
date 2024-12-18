@@ -694,8 +694,8 @@ pub fn knolldetector(
             mov.insert(id, test);
         } else {
             let tid = *best.get(&topid).unwrap();
-            if *mov.get(&tid).unwrap() < 1.75
-                && (*elevation.get(&topid).unwrap() - *elevation.get(&tid).unwrap() - 0.6).abs()
+            if *mov.get(&tid).unwrap() < 1.75 * contour_interval / 5.0 * scalefactor
+                && (*elevation.get(&topid).unwrap() - *elevation.get(&tid).unwrap() - 0.6 * contour_interval / 5.0 * scalefactor).abs()
                     < 0.2
             {
                 // no action
@@ -717,9 +717,9 @@ pub fn knolldetector(
         let x = el_x[id as usize].to_vec();
         if *best.get(&topid).unwrap() == id
             && (x.len() < 13
-                || (*elevation.get(&topid).unwrap() > (*elevation.get(&id).unwrap() + 0.45)
+                || (*elevation.get(&topid).unwrap() > (*elevation.get(&id).unwrap() + 0.45 )
                     || (*elevation.get(&id).unwrap()
-                        - 2.5 * (*elevation.get(&id).unwrap() / 2.5).floor())
+                        - 2.5  * contour_interval / 5.0 * scalefactor * (*elevation.get(&id).unwrap() / (2.5 * contour_interval / 5.0 * scalefactor)).floor())
                         > 0.45))
         {
             new_candidates.push(Candidate {
@@ -999,7 +999,7 @@ pub fn xyzknolls(
         if ele2 + move1 > ((ele - 0.09) / interval + 2.0).floor() * interval {
             move1 -= 0.4;
         }
-        if elenew - ele > 1.5 * scalefactor && x.len() > 21 {
+        if elenew - ele > 1.5 * interval/ 2.5 * scalefactor && x.len() > 21 {
             for k in 0..x.len() {
                 x[k] = xx + (x[k] - xx) * 0.8;
                 y[k] = yy + (y[k] - yy) * 0.8;
