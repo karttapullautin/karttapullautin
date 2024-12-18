@@ -478,8 +478,20 @@ pub fn draw_curves(
     let mut size: f64 = 0.0;
     let mut xstart: f64 = 0.0;
     let mut ystart: f64 = 0.0;
-    let mut x0: f64 = 0.0;
-    let mut y0: f64 = 0.0;
+    let tfw_in = tmpfolder.join("vegetation.pgw");
+    let mut lines = BufReader::new(fs.open(tfw_in).expect("PGW file does not exist")).lines();
+    let x0 = lines
+        .nth(4)
+        .expect("no 4 line")
+        .expect("Could not read line 5")
+        .parse::<f64>()
+        .unwrap();
+    let y0 = lines
+        .next()
+        .expect("no 5 line")
+        .expect("Could not read line 6")
+        .parse::<f64>()
+        .unwrap();
     let mut steepness: HashMap<(usize, usize), f64> = HashMap::default();
 
     if formline > 0.0 {
@@ -491,10 +503,7 @@ pub fn draw_curves(
         ystart = hmap.yoffset;
         size = hmap.scale;
 
-        x0 = xstart;
-
         let xyz = &hmap.grid;
-        y0 = hmap.maxy();
 
         let sxmax = hmap.grid.width() - 1;
         let symax = hmap.grid.height() - 1;
