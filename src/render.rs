@@ -493,17 +493,17 @@ pub fn draw_curves(
         .parse::<f64>()
         .unwrap();
     let mut steepness: HashMap<(usize, usize), f64> = HashMap::default();
-
+    
+    let heightmap_in = tmpfolder.join("xyz2.hmap");
+    let mut reader = BufReader::new(fs.open(heightmap_in)?);
+    let hmap = HeightMap::from_bytes(&mut reader)?;
+    let xyz = &hmap.grid;
+    
     if formline > 0.0 {
-        let heightmap_in = tmpfolder.join("xyz2.hmap");
-        let mut reader = BufReader::new(fs.open(heightmap_in)?);
-        let hmap = HeightMap::from_bytes(&mut reader)?;
 
         xstart = hmap.xoffset;
         ystart = hmap.yoffset;
         size = hmap.scale;
-
-        let xyz = &hmap.grid;
 
         let sxmax = hmap.grid.width() - 1;
         let symax = hmap.grid.height() - 1;
@@ -674,25 +674,27 @@ pub fn draw_curves(
                     curvew = 2.5
                 }
                 if layer.contains("intermed") {
-                    curvew = 1.5
+                    curvew = 1.0
                 }
                 if layer.contains("index") {
-                    curvew = 3.5
+                    curvew = 3.0
                 }
             }
 
             let mut smallringtest = false;
             let mut help = vec![false; x.len()];
             let mut help2 = vec![false; x.len()];
-            if curvew == 1.5 {
+            let mut help3 = vec![false; x.len()];
+            if curvew == 1.0 {
                 for i in 0..x.len() {
                     help[i] = false;
                     help2[i] = true;
+                    help3[i] = false;
                     let xx = (((x[i] / 600.0 * 254.0 * scalefactor + x0) - xstart) / size).floor()
                         as usize;
                     let yy = (((-y[i] / 600.0 * 254.0 * scalefactor + y0) - ystart) / size).floor()
                         as usize;
-                    if curvew != 1.5
+                    if curvew != 1.0
                         || formline == 0.0
                         || steepness.get(&(xx, yy)).unwrap_or(&0.0) < &formlinesteepness
                         || steepness.get(&(xx, yy + 1)).unwrap_or(&0.0) < &formlinesteepness
@@ -700,6 +702,19 @@ pub fn draw_curves(
                         || steepness.get(&(xx + 1, yy + 1)).unwrap_or(&0.0) < &formlinesteepness
                     {
                         help[i] = true;
+                    }
+                    
+                if formline == 0.0 
+                || ((xyz[(xx,yy)] - xyz[(xx+1,yy)] ).abs() < 2.5
+                && (xyz[(xx,yy)] - xyz[(xx-1,yy)] ).abs() < 2.5                
+                && (xyz[(xx,yy-1)] - xyz[(xx,yy)]).abs() < 2.5 
+                && (xyz[(xx,yy+1)] - xyz[(xx,yy)]).abs() < 2.5 
+                && (xyz[(xx,yy)] - xyz[(xx+1, yy+1)]).abs() < 3.5 
+                && (xyz[(xx,yy)] - xyz[(xx-1, yy-1)]).abs() < 3.5 
+                && (xyz[(xx+1, yy-1)]- xyz[(xx, yy)]).abs() < 3.5 
+                && (xyz[(xx-1, yy+1)]- xyz[(xx, yy)]).abs() < 3.5)
+                    {
+                        help3[i] = true;
                     }
                 }
                 for i in 5..(x.len() - 6) {
@@ -765,6 +780,20 @@ pub fn draw_curves(
                         }
                     }
                 }
+                if smallringtest{
+                     for i in 1..x.len() {
+                        help2[i]=true;
+                    }
+                }
+                smallringtest = false;
+                if x.first() == x.last() && y.first() == y.last() && x.len() < 60 {
+                    for i in 1..x.len() {
+                        if help2[i] {
+                            smallringtest = true
+                        }
+                    }
+                }
+
                 // Let's draw short gaps together
                 if !smallringtest {
                     let mut tester = 1;
@@ -798,6 +827,39 @@ pub fn draw_curves(
                         }
                     }
                 }
+                // remove formlines when it is really steep
+                let mut touched=false;
+                for i in 0..x.len() {
+                    if !help3[i] {
+                        for k in 0..5{
+                           if i + k < x.len() {
+                              help2[i + k] = false;
+                              touched=true;
+                           }
+                           if i - k + 1 > 0 && i - k < x.len(){
+                              help2[i - k] = false;
+                              touched=true;
+                           }
+                        }
+                        
+                    }
+                }
+                if touched {
+                    let mut k = 0;
+                    for i in 0..x.len() {
+                        if help2[i]{
+                            k=k+1
+                        }
+                        if k>0 && !help2[i] && k< 15{
+                            for l in (i-k)..i {
+                                help2[l]=false;
+                            }
+                        }
+                        if !help2[i]{
+                            k=0;
+                        }
+                    }
+                }
             }
 
             let mut linedist = 0.0;
@@ -812,8 +874,8 @@ pub fn draw_curves(
             };
 
             for i in 1..x.len() {
-                if curvew != 1.5 || formline == 0.0 || help2[i] || smallringtest {
-                    if let (Some(fp), true) = (fp.as_mut(), curvew == 1.5) {
+                if curvew != 1.0 || formline == 0.0 || help2[i] || smallringtest {
+                    if let (Some(fp), true) = (fp.as_mut(), curvew == 1.0) {
                         if !formlinestart {
                             write!(fp, "POLYLINE\r\n 66\r\n1\r\n  8\r\n{}\r\n  0\r\n", f_label)
                                 .expect("Could not write file");
@@ -830,7 +892,7 @@ pub fn draw_curves(
                     }
 
                     if draw_image {
-                        if curvew == 1.5 && formline == 2.0 {
+                        if curvew == 1.0 && formline == 2.0 {
                             let step =
                                 ((x[i - 1] - x[i]).powi(2) + (y[i - 1] - y[i]).powi(2)).sqrt();
                             if i < 4 {
