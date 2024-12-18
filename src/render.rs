@@ -703,16 +703,12 @@ pub fn draw_curves(
                     {
                         help[i] = true;
                     }
-                    
                 if formline == 0.0 
-                || ((xyz[(xx,yy)] - xyz[(xx+1,yy)] ).abs() < 2.5
-                && (xyz[(xx,yy)] - xyz[(xx-1,yy)] ).abs() < 2.5                
-                && (xyz[(xx,yy-1)] - xyz[(xx,yy)]).abs() < 2.5 
-                && (xyz[(xx,yy+1)] - xyz[(xx,yy)]).abs() < 2.5 
+                || ((xyz[(xx-1,yy)] - xyz[(xx+1,yy)] ).abs() < 2.5
+                && (xyz[(xx,yy-1)] - xyz[(xx,yy+1)]).abs() < 2.5 
                 && (xyz[(xx,yy)] - xyz[(xx+1, yy+1)]).abs() < 3.5 
-                && (xyz[(xx,yy)] - xyz[(xx-1, yy-1)]).abs() < 3.5 
-                && (xyz[(xx+1, yy-1)]- xyz[(xx, yy)]).abs() < 3.5 
-                && (xyz[(xx-1, yy+1)]- xyz[(xx, yy)]).abs() < 3.5)
+                && (xyz[(xx-1,yy-1)] - xyz[(xx+1, yy+1)]).abs() < 3.5 
+                && (xyz[(xx+1, yy-1)]- xyz[(xx-1, yy+1)]).abs() < 3.5)
                     {
                         help3[i] = true;
                     }
