@@ -299,7 +299,7 @@ impl Config {
         let proceed_yellows: bool = gs.get("yellow_smoothing").unwrap_or("0") == "1";
         let med: u32 = parse_typed(gs, "medianboxsize", 0);
         let med2: u32 = parse_typed(gs, "medianboxsize2", 0);
-		let medyellow: u32 = parse_typed(gs, "yellowmedianboxsize", 0);
+        let medyellow: u32 = parse_typed(gs, "yellowmedianboxsize", 0);
         let water = parse_typed(gs, "waterclass", 0);
         let buildings = parse_typed(gs, "buildingsclass", 0);
         let waterele = parse_typed(gs, "waterelevation", -999999.0);
@@ -392,7 +392,7 @@ impl Config {
             proceed_yellows,
             med,
             med2,
-			medyellow,
+            medyellow,
             water,
             buildings,
             waterele,
