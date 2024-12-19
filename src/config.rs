@@ -100,6 +100,7 @@ pub struct Config {
     pub gaplength: f64,
     pub minimumgap: u32,
     pub label_depressions: bool,
+    pub remove_touching_contours: bool,
 }
 
 pub struct Zone {
@@ -330,6 +331,8 @@ impl Config {
         let gaplength: f64 = parse_typed(gs, "gaplength", 12.0);
         let minimumgap: u32 = parse_typed(gs, "minimumgap", 30);
         let label_depressions: bool = gs.get("label_formlines_depressions").unwrap_or("0") == "1";
+        let remove_touching_contours: bool =
+            gs.get("remove_touching_contours").unwrap_or("0") == "1";
         Ok(Self {
             batch: gs.get("batch").unwrap() == "1",
             processes,
@@ -406,6 +409,7 @@ impl Config {
             gaplength,
             minimumgap,
             label_depressions,
+            remove_touching_contours,
         })
     }
 }

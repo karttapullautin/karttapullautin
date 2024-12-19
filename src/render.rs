@@ -471,6 +471,7 @@ pub fn draw_curves(
         gaplength,
         minimumgap,
         label_depressions,
+        remove_touching_contours,
         ..
     } = config;
     formlinesteepness *= scalefactor;
@@ -493,14 +494,13 @@ pub fn draw_curves(
         .parse::<f64>()
         .unwrap();
     let mut steepness: HashMap<(usize, usize), f64> = HashMap::default();
-    
+
     let heightmap_in = tmpfolder.join("xyz2.hmap");
     let mut reader = BufReader::new(fs.open(heightmap_in)?);
     let hmap = HeightMap::from_bytes(&mut reader)?;
     let xyz = &hmap.grid;
-    
-    if formline > 0.0 {
 
+    if formline > 0.0 {
         xstart = hmap.xoffset;
         ystart = hmap.yoffset;
         size = hmap.scale;
@@ -703,12 +703,12 @@ pub fn draw_curves(
                     {
                         help[i] = true;
                     }
-                if formline == 0.0 
-                || ((xyz[(xx-1,yy)] - xyz[(xx+1,yy)] ).abs() < 2.5
-                && (xyz[(xx,yy-1)] - xyz[(xx,yy+1)]).abs() < 2.5 
-                && (xyz[(xx,yy)] - xyz[(xx+1, yy+1)]).abs() < 3.5 
-                && (xyz[(xx-1,yy-1)] - xyz[(xx+1, yy+1)]).abs() < 3.5 
-                && (xyz[(xx+1, yy-1)]- xyz[(xx-1, yy+1)]).abs() < 3.5)
+                    if formline == 0.0
+                        || ((xyz[(xx - 1, yy)] - xyz[(xx + 1, yy)]).abs() < 2.5
+                            && (xyz[(xx, yy - 1)] - xyz[(xx, yy + 1)]).abs() < 2.5
+                            && (xyz[(xx, yy)] - xyz[(xx + 1, yy + 1)]).abs() < 3.5
+                            && (xyz[(xx - 1, yy - 1)] - xyz[(xx + 1, yy + 1)]).abs() < 3.5
+                            && (xyz[(xx + 1, yy - 1)] - xyz[(xx - 1, yy + 1)]).abs() < 3.5)
                     {
                         help3[i] = true;
                     }
@@ -776,9 +776,9 @@ pub fn draw_curves(
                         }
                     }
                 }
-                if smallringtest{
-                     for i in 1..x.len() {
-                        help2[i]=true;
+                if smallringtest {
+                    for i in 1..x.len() {
+                        help2[i] = true;
                     }
                 }
                 smallringtest = false;
@@ -823,36 +823,37 @@ pub fn draw_curves(
                         }
                     }
                 }
-                // remove formlines when it is really steep
-                let mut touched=false;
-                for i in 0..x.len() {
-                    if !help3[i] {
-                        for k in 0..5{
-                           if i + k < x.len() {
-                              help2[i + k] = false;
-                              touched=true;
-                           }
-                           if i - k + 1 > 0 && i - k < x.len(){
-                              help2[i - k] = false;
-                              touched=true;
-                           }
-                        }
-                        
-                    }
-                }
-                if touched {
-                    let mut k = 0;
+                if remove_touching_contours {
+                    // remove formlines when it is really steep
+                    let mut touched = false;
                     for i in 0..x.len() {
-                        if help2[i]{
-                            k=k+1
-                        }
-                        if k>0 && !help2[i] && k< 15{
-                            for l in (i-k)..i {
-                                help2[l]=false;
+                        if !help3[i] {
+                            for k in 0..5 {
+                                if i + k < x.len() {
+                                    help2[i + k] = false;
+                                    touched = true;
+                                }
+                                if i - k + 1 > 0 && i - k < x.len() {
+                                    help2[i - k] = false;
+                                    touched = true;
+                                }
                             }
                         }
-                        if !help2[i]{
-                            k=0;
+                    }
+                    if touched {
+                        let mut k = 0;
+                        for i in 0..x.len() {
+                            if help2[i] {
+                                k += 1;
+                            }
+                            if k > 0 && !help2[i] && k < 15 {
+                                for l in (i - k)..i {
+                                    help2[l] = false;
+                                }
+                            }
+                            if !help2[i] {
+                                k = 0;
+                            }
                         }
                     }
                 }
