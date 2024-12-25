@@ -25,6 +25,9 @@ jobs:
 
     - uses: dtolnay/rust-toolchain@stable
 
+    - name: Install dependencies
+      run: sudo apt install libfreetype-dev libfontconfig-dev
+
     - name: Download LAZ file
       run: curl -L "https://cdn.routechoic.es/test.laz" -o test_file.laz
 
@@ -119,6 +122,9 @@ jobs:
         fetch-depth: 2
 
     - uses: dtolnay/rust-toolchain@stable
+
+    - name: Install dependencies
+      run: sudo apt install libfreetype-dev libfontconfig-dev
 
     - name: Download LAZ file
       run: curl -L "https://cdn.routechoic.es/test.laz" -o test_file.laz

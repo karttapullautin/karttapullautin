@@ -20,6 +20,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Install dependencies
+        run: sudo apt install libfreetype-dev libfontconfig-dev
+
       - name: Check
         run: cargo check --all-features --all-targets
 
@@ -32,6 +35,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: sudo apt install libfreetype-dev libfontconfig-dev
 
       - name: Unit Tests
         run: cargo test
