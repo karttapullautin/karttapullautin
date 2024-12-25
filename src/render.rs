@@ -674,10 +674,10 @@ pub fn draw_curves(
                     curvew = 2.5
                 }
                 if layer.contains("intermed") {
-                    curvew = 1.0
+                    curvew = 1.5
                 }
                 if layer.contains("index") {
-                    curvew = 3.0
+                    curvew = 3.5
                 }
             }
 
@@ -685,7 +685,7 @@ pub fn draw_curves(
             let mut help = vec![false; x.len()];
             let mut help2 = vec![false; x.len()];
             let mut help3 = vec![false; x.len()];
-            if curvew == 1.0 {
+            if curvew == 1.5 {
                 for i in 0..x.len() {
                     help[i] = false;
                     help2[i] = true;
@@ -694,7 +694,7 @@ pub fn draw_curves(
                         as usize;
                     let yy = (((-y[i] / 600.0 * 254.0 * scalefactor + y0) - ystart) / size).floor()
                         as usize;
-                    if curvew != 1.0
+                    if curvew != 1.5
                         || formline == 0.0
                         || steepness.get(&(xx, yy)).unwrap_or(&0.0) < &formlinesteepness
                         || steepness.get(&(xx, yy + 1)).unwrap_or(&0.0) < &formlinesteepness
@@ -871,8 +871,8 @@ pub fn draw_curves(
             };
 
             for i in 1..x.len() {
-                if curvew != 1.0 || formline == 0.0 || help2[i] || smallringtest {
-                    if let (Some(fp), true) = (fp.as_mut(), curvew == 1.0) {
+                if curvew != 1.5 || formline == 0.0 || help2[i] || smallringtest {
+                    if let (Some(fp), true) = (fp.as_mut(), curvew == 1.5) {
                         if !formlinestart {
                             write!(fp, "POLYLINE\r\n 66\r\n1\r\n  8\r\n{}\r\n  0\r\n", f_label)
                                 .expect("Could not write file");
@@ -889,7 +889,7 @@ pub fn draw_curves(
                     }
 
                     if draw_image {
-                        if curvew == 1.0 && formline == 2.0 {
+                        if curvew == 1.5 && formline == 2.0 {
                             let step =
                                 ((x[i - 1] - x[i]).powi(2) + (y[i - 1] - y[i]).powi(2)).sqrt();
                             if i < 4 {
