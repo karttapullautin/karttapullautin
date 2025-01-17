@@ -1,0 +1,52 @@
+name: "Build for linux arm64"
+on:
+  release:
+    types: [created]
+
+jobs:
+  release:
+    name: release linux arm64
+    runs-on: ubuntu-22.04-arm
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: hecrj/setup-rust-action@v1.4.0
+        with:
+          rust-version: stable
+
+      - name: Install dependencies
+        run: sudo apt install libfreetype-dev libfontconfig-dev
+
+      - name: Compile
+        shell: bash
+        run: |
+          cargo clean
+          RUSTFLAGS='-C target-feature=+crt-static' cargo build --release --target aarch64-unknown-linux-gnu
+
+      - run: cp target/aarch64-unknown-linux-gnu/release/pullauta .
+
+      - name: 'Compress binaries'
+        if: true
+        uses: a7ul/tar-action@v1.1.2
+        with:
+          command: c
+          files: |
+            pullauta
+            LICENSE
+            README.md
+            osm.txt
+            fastighetskartan.txt
+          outPath: '${{ runner.temp }}/karttapullautin-arm64-linux.tar.gz'
+
+      - name: 'Release binaries'
+        if: true
+        uses: pragmatrix/release-action@v1.11.1-rs
+        with:
+          allowUpdates: true
+          replacesArtifacts: true
+          artifacts: '${{ runner.temp }}/karttapullautin-arm64-linux.tar.gz'
+          token: ${{ secrets.GITHUB_TOKEN }}
+          artifactErrorsFailBuild: true
+          prerelease: true
