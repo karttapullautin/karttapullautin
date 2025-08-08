@@ -157,10 +157,10 @@ pub fn makevege(
                     // inside, take all values
                     (xyz[(xx + 1, yy)], xyz[(xx, yy + 1)], xyz[(xx + 1, yy + 1)])
                 } else if xx < xyz.width() - 1 {
-                    // on right edge, extend to the right
+                    // on bottom edge, extend downwards
                     (xyz[(xx + 1, yy)], a, a)
                 } else if yy < xyz.height() - 1 {
-                    // on bottom edge, extend downwards
+                    // on right edge, extend to the right
                     (a, xyz[(xx, yy + 1)], a)
                 } else {
                     // in corner, use this height for all
