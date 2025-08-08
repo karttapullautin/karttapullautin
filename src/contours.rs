@@ -72,8 +72,8 @@ pub fn xyz2heightmap(
     let xmax = (xmax / scale).ceil() * scale;
     let ymax = (ymax / scale).ceil() * scale;
 
-    let w: usize = ((xmax - xmin) / scale) as usize;
-    let h: usize = ((ymax - ymin) / scale) as usize;
+    let w: usize = ((xmax - xmin) / scale) as usize + 1;
+    let h: usize = ((ymax - ymin) / scale) as usize + 1;
 
     // a two-dimensional vector of (sum, count) pairs for computing averages
     let mut list_alt = Vec2D::new(w, h, (0f64, 0usize));
@@ -191,7 +191,7 @@ pub fn xyz2heightmap(
             }
         }
         for yy in 1..avg_alt.height() {
-            let y = h - yy;
+            let y = avg_alt.height() - 1 - yy;
             if avg_alt[(x, y)].is_nan() {
                 avg_alt[(x, y)] = avg_alt[(x, y + 1)];
             }
