@@ -85,8 +85,8 @@ pub fn xyz2heightmap(
             let y: f64 = r.y;
             let h: f64 = r.z;
 
-            let idx_x = ((x - xmin) / scale) as usize;
-            let idx_y = ((y - ymin) / scale) as usize;
+            let idx_x = ((x - xmin) / scale + 0.5) as usize;
+            let idx_y = ((y - ymin) / scale + 0.5) as usize;
 
             let (sum, count) = &mut list_alt[(idx_x, idx_y)];
             *sum += h;
