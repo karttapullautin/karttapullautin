@@ -557,6 +557,12 @@ pub fn draw_curves(
                         as usize;
                     let yy = (((-y[i] / 600.0 * 254.0 * scalefactor + y0) - ystart) / size).floor()
                         as usize;
+
+                    // make sure indices are within bounds for the grid lookups
+                    if xx >= xyz.width() - 1 || yy >= xyz.height() - 1 || xx < 1 || yy < 1 {
+                        continue;
+                    }
+
                     if curvew != 1.5
                         || formline == 0.0
                         || steepness[(xx, yy)] < formlinesteepness

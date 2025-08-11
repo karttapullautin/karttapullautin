@@ -191,8 +191,8 @@ pub fn makecliffs(
                 for &(x0, y0, h0) in d.iter() {
                     let cliff_length = 1.47;
                     let mut steep = steepness[(
-                        ((x0 - xstart) / size + 0.5) as usize,
-                        ((y0 - ystart) / size + 0.5) as usize,
+                        ((x0 - xstart) / size) as usize,
+                        ((y0 - ystart) / size) as usize,
                     )] - flat_place;
                     if steep.is_nan() {
                         steep = -flat_place;
