@@ -35,35 +35,41 @@ pub fn blocks(fs: &impl FileSystem, tmpfolder: &Path) -> Result<(), Box<dyn Erro
 
     let xyz_file_in = tmpfolder.join("xyztemp.xyz.bin");
     let mut reader = XyzInternalReader::new(fs.open(&xyz_file_in)?).unwrap();
-    while let Some(r) = reader.next().unwrap() {
-        let (x, y, h) = (r.x, r.y, r.z);
-        let r3 = r.classification;
-        let r4 = r.number_of_returns;
-        let r5 = r.return_number;
+    while let Some(chunk) = reader.next_chunk().unwrap() {
+        for r in chunk {
+            let (x, y, h) = (r.x, r.y, r.z as f64);
+            let r3 = r.classification;
+            let r4 = r.number_of_returns;
+            let r5 = r.return_number;
 
-        let xx = ((x - xstartxyz) / size).floor() as u64;
-        let yy = ((y - ystartxyz) / size).floor() as u64;
-        if r3 != 2 && r3 != 9 && r4 == 1 && r5 == 1 && h - *xyz.get(&(xx, yy)).unwrap_or(&0.0) > 2.0
-        {
-            draw_filled_rect_mut(
-                &mut img,
-                Rect::at(
-                    (x - xstartxyz - 1.0) as i32,
-                    (ystartxyz + 2.0 * ymax as f64 - y - 1.0) as i32,
-                )
-                .of_size(3, 3),
-                black,
-            );
-        } else {
-            draw_filled_rect_mut(
-                &mut img2,
-                Rect::at(
-                    (x - xstartxyz - 1.0) as i32,
-                    (ystartxyz + 2.0 * ymax as f64 - y - 1.0) as i32,
-                )
-                .of_size(3, 3),
-                white,
-            );
+            let xx = ((x - xstartxyz) / size).floor() as u64;
+            let yy = ((y - ystartxyz) / size).floor() as u64;
+            if r3 != 2
+                && r3 != 9
+                && r4 == 1
+                && r5 == 1
+                && h - *xyz.get(&(xx, yy)).unwrap_or(&0.0) > 2.0
+            {
+                draw_filled_rect_mut(
+                    &mut img,
+                    Rect::at(
+                        (x - xstartxyz - 1.0) as i32,
+                        (ystartxyz + 2.0 * ymax as f64 - y - 1.0) as i32,
+                    )
+                    .of_size(3, 3),
+                    black,
+                );
+            } else {
+                draw_filled_rect_mut(
+                    &mut img2,
+                    Rect::at(
+                        (x - xstartxyz - 1.0) as i32,
+                        (ystartxyz + 2.0 * ymax as f64 - y - 1.0) as i32,
+                    )
+                    .of_size(3, 3),
+                    white,
+                );
+            }
         }
     }
 

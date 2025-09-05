@@ -161,6 +161,10 @@ impl From<Polylines<Point3, (Classification, f64)>> for Geometry {
     }
 }
 
+/// The version of the BinaryDxf file format. If any content of the [`BinaryDxf`] struct changes,
+/// including any sub-fields (basically anything in this mod) we need to increase this version.
+const BINARY_DXF_VERSION: usize = 1;
+
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct BinaryDxf {
     /// the version of the program that created this file, used to detect stale temp files
@@ -191,7 +195,7 @@ impl Bounds {
 impl BinaryDxf {
     pub fn new(bounds: Bounds, data: Vec<Geometry>) -> Self {
         Self {
-            version: env!("CARGO_PKG_VERSION").to_string(),
+            version: BINARY_DXF_VERSION.to_string(),
             bounds,
             data,
         }
@@ -213,11 +217,20 @@ impl BinaryDxf {
     /// Read this object from a reader. Returns an error if the version does not match.
     pub fn from_reader<R: std::io::Read>(reader: &mut R) -> anyhow::Result<Self> {
         let object: Self = crate::util::read_object(reader)?;
-        anyhow::ensure!(
-            object.version == env!("CARGO_PKG_VERSION"),
-            "Binary DXF file was created with another version, please remove and recreate"
-        );
-        Ok(object)
+
+        // Prevously we were using the crate version, which is a string starting
+        // with 2.X.X, but now we use a simple integer version. Version 1 supports all those
+        // "2.X.X" versions as well.
+        if (object.version == BINARY_DXF_VERSION.to_string())
+            || (BINARY_DXF_VERSION == 1 && object.version.starts_with("2."))
+        {
+            Ok(object)
+        } else {
+            anyhow::bail!(
+                "This DXF.BIN file version is not supported by this executable. Please re-run this command with an executable that supports this version (dxf.bin file version: {})",
+                object.version,
+            );
+        }
     }
 
     /// Write this geometry to a DXF file.

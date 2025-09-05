@@ -10,50 +10,17 @@ use log::debug;
 const XYZ_MAGIC: &[u8] = b"XYZB";
 
 /// A single record of an observed laser data point needed by the algorithms.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, bytemuck::NoUninit, bytemuck::AnyBitPattern)]
+#[repr(C)]
 pub struct XyzRecord {
     pub x: f64,
     pub y: f64,
-    pub z: f64,
+    pub z: f32,
     pub classification: u8,
     pub number_of_returns: u8,
     pub return_number: u8,
-}
-
-impl FromToBytes for XyzRecord {
-    fn from_bytes<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
-        let x = f64::from_bytes(reader)?;
-        let y = f64::from_bytes(reader)?;
-        let z = f64::from_bytes(reader)?;
-
-        let mut buff = [0; 3];
-        reader.read_exact(&mut buff)?;
-        let classification = buff[0];
-        let number_of_returns = buff[1];
-        let return_number = buff[2];
-        Ok(Self {
-            x,
-            y,
-            z,
-            classification,
-            number_of_returns,
-            return_number,
-        })
-    }
-
-    fn to_bytes<W: std::io::Write>(&self, writer: &mut W) -> std::io::Result<()> {
-        // write the x, y, z coordinates
-        self.x.to_bytes(writer)?;
-        self.y.to_bytes(writer)?;
-        self.z.to_bytes(writer)?;
-
-        // write the classification, number of returns, return number, and intensity
-        writer.write_all(&[
-            self.classification,
-            self.number_of_returns,
-            self.return_number,
-        ])
-    }
+    // padding bytes to make the struct exactly 24 bytes long
+    pub _padding: u8,
 }
 
 pub struct XyzInternalWriter<W: Write + Seek> {
@@ -72,11 +39,15 @@ impl<W: Write + Seek> XyzInternalWriter<W> {
         }
     }
 
-    pub fn write_record(&mut self, record: &XyzRecord) -> std::io::Result<()> {
+    pub fn write_records(&mut self, records: &[XyzRecord]) -> std::io::Result<()> {
         let inner = self
             .inner
             .as_mut()
             .ok_or_else(|| std::io::Error::other("writer has already been finished"))?;
+
+        if records.is_empty() {
+            return Ok(()); // nothing to write
+        }
 
         // write the header (format + length) on the first write
         if self.records_written == 0 {
@@ -87,8 +58,10 @@ impl<W: Write + Seek> XyzInternalWriter<W> {
             u64::MAX.to_bytes(inner)?;
         }
 
-        record.to_bytes(inner)?;
-        self.records_written += 1;
+        let bytes: &[u8] = bytemuck::cast_slice(records);
+        inner.write_all(bytes)?;
+
+        self.records_written += records.len() as u64;
         Ok(())
     }
 
@@ -106,10 +79,13 @@ impl<W: Write + Seek> XyzInternalWriter<W> {
         if let Some(start) = self.start {
             let elapsed = start.elapsed();
             debug!(
-                "Wrote {} records in {:.2?} ({:.2?}/record)",
+                "Wrote {} records in {:.2?} ({:.2?}/record, {:.3}M records/s, {:.2}MB/s)",
                 self.records_written,
                 elapsed,
                 elapsed / self.records_written as u32,
+                self.records_written as f64 / (10e6 * elapsed.as_secs_f64()),
+                self.records_written as f64 * size_of::<XyzRecord>() as f64
+                    / (1024.0 * 1024.0 * elapsed.as_secs_f64()),
             );
         }
         Ok(inner)
@@ -130,6 +106,7 @@ pub struct XyzInternalReader<R: Read> {
     records_read: u64,
     // for stats
     start: Option<Instant>,
+    buffer: [XyzRecord; 1024],
 }
 
 impl<R: Read> XyzInternalReader<R> {
@@ -151,20 +128,23 @@ impl<R: Read> XyzInternalReader<R> {
             n_records,
             records_read: 0,
             start: None,
+            buffer: [XyzRecord::default(); 1024],
         })
     }
 
-    #[allow(clippy::should_implement_trait)]
-    pub fn next(&mut self) -> std::io::Result<Option<XyzRecord>> {
+    pub fn next_chunk(&mut self) -> std::io::Result<Option<&[XyzRecord]>> {
         if self.records_read >= self.n_records {
             // TODO: log statistics about the read records
             if let Some(start) = self.start {
                 let elapsed = start.elapsed();
                 debug!(
-                    "Read {} records in {:.2?} ({:.2?}/record)",
+                    "Read {} records in {:.2?} ({:.2?}/record, {:.3}M records/s, {:.2}MB/s)",
                     self.records_read,
                     elapsed,
                     elapsed / self.records_read as u32,
+                    self.records_read as f64 / (10e6 * elapsed.as_secs_f64()),
+                    self.records_read as f64 * size_of::<XyzRecord>() as f64
+                        / (1024.0 * 1024.0 * elapsed.as_secs_f64()),
                 );
             }
 
@@ -175,9 +155,18 @@ impl<R: Read> XyzInternalReader<R> {
             self.start = Some(Instant::now());
         }
 
-        let record = XyzRecord::from_bytes(&mut self.inner)?;
-        self.records_read += 1;
-        Ok(Some(record))
+        // read as many as we can fit in the buffer
+        let records_left = self.n_records - self.records_read;
+        let records_to_read = (self.buffer.len() as u64).min(records_left);
+
+        // treat buffer as mutable slice of bytes
+        let records_buffer = &mut self.buffer[..records_to_read as usize];
+        let buffer: &mut [u8] = bytemuck::cast_slice_mut(records_buffer);
+        self.inner.read_exact(buffer)?;
+        self.records_read += records_to_read;
+
+        // return reference to it
+        Ok(Some(records_buffer))
     }
 }
 
@@ -188,24 +177,6 @@ mod test {
     use crate::io::xyz::XyzRecord;
 
     use super::*;
-
-    #[test]
-    fn test_xyz_record() {
-        let record = XyzRecord {
-            x: 1.0,
-            y: 2.0,
-            z: 3.0,
-            classification: 4,
-            number_of_returns: 5,
-            return_number: 6,
-        };
-
-        let mut buff = Vec::new();
-        record.to_bytes(&mut buff).unwrap();
-        let read_record = XyzRecord::from_bytes(&mut buff.as_slice()).unwrap();
-
-        assert_eq!(record, read_record);
-    }
 
     #[test]
     fn test_writer_reader_many() {
@@ -219,19 +190,23 @@ mod test {
             classification: 4,
             number_of_returns: 5,
             return_number: 6,
+            _padding: 0,
         };
 
-        writer.write_record(&record).unwrap();
-        writer.write_record(&record).unwrap();
-        writer.write_record(&record).unwrap();
+        writer.write_records(&[record]).unwrap();
+        writer.write_records(&[record]).unwrap();
+        writer.write_records(&[record]).unwrap();
 
         // now read the records
         let data = writer.finish().unwrap().into_inner();
         let cursor = Cursor::new(data);
         let mut reader = super::XyzInternalReader::new(cursor).unwrap();
-        assert_eq!(reader.next().unwrap().unwrap(), record);
-        assert_eq!(reader.next().unwrap().unwrap(), record);
-        assert_eq!(reader.next().unwrap().unwrap(), record);
-        assert_eq!(reader.next().unwrap(), None);
+        let chunk = reader.next_chunk().unwrap().unwrap();
+
+        assert_eq!(chunk.len(), 3);
+        assert_eq!(chunk[0], record);
+        assert_eq!(chunk[1], record);
+        assert_eq!(chunk[2], record);
+        assert_eq!(reader.next_chunk().unwrap(), None);
     }
 }

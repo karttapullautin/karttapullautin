@@ -24,6 +24,11 @@ Then download the latest code at https://github.com/karttapullautin/karttapullau
     cargo build --release
 
 The `pullauta` binary will be accessible in the `target/release/` directory. You can proceed and copy it to your desired directory.
+For maximum performance, it is recommended to compile targeting the native cpu by specifying the `target-cpu` flag. This makes sure that any instruction set extensions such as SIMD and FMA are used. This includes if your processor supports AVX, AVX2 and AVX512 (and NEON on ARM targets) as 
+the default release binaries are compiled without these enabled to be as portable as possible. If you have a relatively recent CPU (eg. Intel `skylake` or later) you should instead compile like this:
+
+    RUSTFLAGS="-C target-cpu=native" cargo build --release
+
 
 ### Converting a LiDAR file
 

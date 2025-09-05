@@ -76,37 +76,39 @@ pub fn makevege(
 
     let mut i = 0;
     let mut reader = XyzInternalReader::new(fs.open(&xyz_file_in)?)?;
-    while let Some(r) = reader.next()? {
-        if vegethin == 0 || ((i + 1) as u32) % vegethin == 0 {
-            let x: f64 = r.x;
-            let y: f64 = r.y;
-            let h: f64 = r.z;
-            let r3 = r.classification;
-            let r4 = r.number_of_returns;
-            let r5 = r.return_number;
+    while let Some(chunk) = reader.next_chunk()? {
+        for r in chunk {
+            if vegethin == 0 || ((i + 1) as u32) % vegethin == 0 {
+                let x: f64 = r.x;
+                let y: f64 = r.y;
+                let h: f64 = r.z as f64;
+                let r3 = r.classification;
+                let r4 = r.number_of_returns;
+                let r5 = r.return_number;
 
-            let xx = ((x - xmin) / block) as usize;
-            let yy = ((y - ymin) / block) as usize;
-            let t = &mut top[(xx, yy)];
-            if h > *t {
-                *t = h;
-            }
-            let xx = ((x - xmin) / 3.0) as usize;
-            let yy = ((y - ymin) / 3.0) as usize;
+                let xx = ((x - xmin) / block) as usize;
+                let yy = ((y - ymin) / block) as usize;
+                let t = &mut top[(xx, yy)];
+                if h > *t {
+                    *t = h;
+                }
+                let xx = ((x - xmin) / 3.0) as usize;
+                let yy = ((y - ymin) / 3.0) as usize;
 
-            if r3 == 2
-                || h < yellowheight
-                    + xyz[(((x - xmin) / size) as usize, ((y - ymin) / size) as usize)]
-            {
-                yhit[(xx, yy)] += 1;
-            } else if r4 == 1 && r5 == 1 {
-                noyhit[(xx, yy)] += yellowfirstlast;
-            } else {
-                noyhit[(xx, yy)] += 1;
+                if r3 == 2
+                    || h < yellowheight
+                        + xyz[(((x - xmin) / size) as usize, ((y - ymin) / size) as usize)]
+                {
+                    yhit[(xx, yy)] += 1;
+                } else if r4 == 1 && r5 == 1 {
+                    noyhit[(xx, yy)] += yellowfirstlast;
+                } else {
+                    noyhit[(xx, yy)] += 1;
+                }
             }
+
+            i += 1;
         }
-
-        i += 1;
     }
     // rebind the variables to be non-mut for the rest of the function
     let (top, yhit, noyhit) = (top, yhit, noyhit);
@@ -130,107 +132,109 @@ pub fn makevege(
 
     let mut i = 0;
     let mut reader = XyzInternalReader::new(fs.open(&xyz_file_in)?)?;
-    while let Some(r) = reader.next()? {
-        if vegethin == 0 || ((i + 1) as u32) % vegethin == 0 {
-            let x: f64 = r.x;
-            let y: f64 = r.y;
-            let h: f64 = r.z - zoffset;
-            let r3 = r.classification;
-            let r4 = r.number_of_returns;
-            let r5 = r.return_number;
+    while let Some(chunk) = reader.next_chunk()? {
+        for r in chunk {
+            if vegethin == 0 || ((i + 1) as u32) % vegethin == 0 {
+                let x: f64 = r.x;
+                let y: f64 = r.y;
+                let h: f64 = r.z as f64 - zoffset;
+                let r3 = r.classification;
+                let r4 = r.number_of_returns;
+                let r5 = r.return_number;
 
-            if r5 == 1 {
-                let xx = ((x - xmin) / block) as usize;
-                let yy = ((y - ymin) / block) as usize;
-                firsthit[(xx, yy)] += 1;
-            }
+                if r5 == 1 {
+                    let xx = ((x - xmin) / block) as usize;
+                    let yy = ((y - ymin) / block) as usize;
+                    firsthit[(xx, yy)] += 1;
+                }
 
-            // linear interpolation of the height at the point based on the surrpoinding cells in the heightmap
-            let thelele = {
-                let xx = ((x - xmin) / size) as usize;
-                let yy = ((y - ymin) / size) as usize;
+                // linear interpolation of the height at the point based on the surrpoinding cells in the heightmap
+                let thelele = {
+                    let xx = ((x - xmin) / size) as usize;
+                    let yy = ((y - ymin) / size) as usize;
 
-                let a = xyz[(xx, yy)];
+                    let a = xyz[(xx, yy)];
 
-                // if we are on the edge, simply extend the values
-                let (b, c, d) = if xx < xyz.width() - 1 && yy < xyz.height() - 1 {
-                    // inside, take all values
-                    (xyz[(xx + 1, yy)], xyz[(xx, yy + 1)], xyz[(xx + 1, yy + 1)])
-                } else if xx < xyz.width() - 1 {
-                    // on bottom edge, extend downwards
-                    (xyz[(xx + 1, yy)], a, a)
-                } else if yy < xyz.height() - 1 {
-                    // on right edge, extend to the right
-                    (a, xyz[(xx, yy + 1)], a)
-                } else {
-                    // in corner, use this height for all
-                    (a, a, a)
+                    // if we are on the edge, simply extend the values
+                    let (b, c, d) = if xx < xyz.width() - 1 && yy < xyz.height() - 1 {
+                        // inside, take all values
+                        (xyz[(xx + 1, yy)], xyz[(xx, yy + 1)], xyz[(xx + 1, yy + 1)])
+                    } else if xx < xyz.width() - 1 {
+                        // on bottom edge, extend downwards
+                        (xyz[(xx + 1, yy)], a, a)
+                    } else if yy < xyz.height() - 1 {
+                        // on right edge, extend to the right
+                        (a, xyz[(xx, yy + 1)], a)
+                    } else {
+                        // in corner, use this height for all
+                        (a, a, a)
+                    };
+
+                    let distx = (x - xmin) / size - xx as f64;
+                    let disty = (y - ymin) / size - yy as f64;
+
+                    // linear interpolation of the elevation at the point
+                    let ab = a * (1.0 - distx) + b * distx;
+                    let cd = c * (1.0 - distx) + d * distx;
+                    ab * (1.0 - disty) + cd * disty
                 };
 
-                let distx = (x - xmin) / size - xx as f64;
-                let disty = (y - ymin) / size - yy as f64;
-
-                // linear interpolation of the elevation at the point
-                let ab = a * (1.0 - distx) + b * distx;
-                let cd = c * (1.0 - distx) + d * distx;
-                ab * (1.0 - disty) + cd * disty
-            };
-
-            let xx = ((x - xmin) / block / (step as f64)) as usize;
-            let yy = ((y - ymin) / block / (step as f64)) as usize;
-            let hh = h - thelele;
-            let ug_entry = &mut ug[(xx, yy)];
-            if hh <= 1.2 {
-                if r3 == 2 {
-                    ug_entry.ugg += 1.0;
-                } else if hh > 0.25 {
-                    ug_entry.ug += 1;
+                let xx = ((x - xmin) / block / (step as f64) + 0.5) as usize;
+                let yy = ((y - ymin) / block / (step as f64) + 0.5) as usize;
+                let hh = h - thelele;
+                let ug_entry = &mut ug[(xx, yy)];
+                if hh <= 1.2 {
+                    if r3 == 2 {
+                        ug_entry.ugg += 1.0;
+                    } else if hh > 0.25 {
+                        ug_entry.ug += 1;
+                    } else {
+                        ug_entry.ugg += 1.0;
+                    }
                 } else {
-                    ug_entry.ugg += 1.0;
+                    ug_entry.ugg += 0.05;
                 }
-            } else {
-                ug_entry.ugg += 0.05;
-            }
 
-            let xx = ((x - xmin) / block) as usize;
-            let yy = ((y - ymin) / block) as usize;
-            if r3 == 2 || greenground >= hh {
-                if r4 == 1 && r5 == 1 {
-                    ghit[(xx, yy)] += firstandlastreturnasground;
+                let xx = ((x - xmin) / block) as usize;
+                let yy = ((y - ymin) / block) as usize;
+                if r3 == 2 || greenground >= hh {
+                    if r4 == 1 && r5 == 1 {
+                        ghit[(xx, yy)] += firstandlastreturnasground;
+                    } else {
+                        ghit[(xx, yy)] += 1;
+                    }
                 } else {
-                    ghit[(xx, yy)] += 1;
-                }
-            } else {
-                let mut last = 1.0;
-                if r4 == r5 {
-                    last = lastfactor;
-                    if hh < 5.0 {
-                        last = firstandlastfactor;
+                    let mut last = 1.0;
+                    if r4 == r5 {
+                        last = lastfactor;
+                        if hh < 5.0 {
+                            last = firstandlastfactor;
+                        }
+                    }
+
+                    // NOTE: the use of top here means that we cannot combine the two processing loops into one
+                    let top_val = top[(xx, yy)];
+                    for &Zone {
+                        low,
+                        high,
+                        roof,
+                        factor,
+                    } in config.zones.iter()
+                    {
+                        if hh >= low && hh < high && top_val - thelele < roof {
+                            greenhit[(xx, yy)] += (factor * last) as f32;
+                            break;
+                        }
+                    }
+
+                    if greenhigh < hh {
+                        highit[(xx, yy)] += 1;
                     }
                 }
-
-                // NOTE: the use of top here means that we cannot combine the two processing loops into one
-                let top_val = top[(xx, yy)];
-                for &Zone {
-                    low,
-                    high,
-                    roof,
-                    factor,
-                } in config.zones.iter()
-                {
-                    if hh >= low && hh < high && top_val - thelele < roof {
-                        greenhit[(xx, yy)] += (factor * last) as f32;
-                        break;
-                    }
-                }
-
-                if greenhigh < hh {
-                    highit[(xx, yy)] += 1;
-                }
             }
+
+            i += 1;
         }
-
-        i += 1;
     }
     // rebind the variables to be non-mut for the rest of the function
     let (firsthit, ug, ghit, greenhit, highit) = (firsthit, ug, ghit, greenhit, highit);
@@ -479,23 +483,25 @@ pub fn makevege(
     let water = config.water;
     if buildings > 0 || water > 0 {
         let mut reader = XyzInternalReader::new(fs.open(&xyz_file_in)?)?;
-        while let Some(r) = reader.next()? {
-            let (x, y) = (r.x, r.y);
-            let c: u8 = r.classification;
+        while let Some(chunk) = reader.next_chunk()? {
+            for r in chunk {
+                let (x, y) = (r.x, r.y);
+                let c: u8 = r.classification;
 
-            if c == buildings {
-                draw_filled_rect_mut(
-                    &mut imgwater,
-                    Rect::at((x - xmin) as i32 - 1, (ymax - y) as i32 - 1).of_size(3, 3),
-                    black,
-                );
-            }
-            if c == water {
-                draw_filled_rect_mut(
-                    &mut imgwater,
-                    Rect::at((x - xmin) as i32 - 1, (ymax - y) as i32 - 1).of_size(3, 3),
-                    blue,
-                );
+                if c == buildings {
+                    draw_filled_rect_mut(
+                        &mut imgwater,
+                        Rect::at((x - xmin) as i32 - 1, (ymax - y) as i32 - 1).of_size(3, 3),
+                        black,
+                    );
+                }
+                if c == water {
+                    draw_filled_rect_mut(
+                        &mut imgwater,
+                        Rect::at((x - xmin) as i32 - 1, (ymax - y) as i32 - 1).of_size(3, 3),
+                        blue,
+                    );
+                }
             }
         }
     }

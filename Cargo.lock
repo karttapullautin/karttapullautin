@@ -242,6 +242,20 @@ name = "bytemuck"
 version = "1.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c76a5792e44e4abe34d3abf15636779261d45a7450612059293d1d2cfc63422"
+dependencies = [
+ "bytemuck_derive",
+]
+
+[[package]]
+name = "bytemuck_derive"
+version = "1.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f154e572231cb6ba2bd1176980827e3d5dc04cc183a75dea38109fbdd672d29"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "byteorder"
@@ -1173,15 +1187,15 @@ dependencies = [
 
 [[package]]
 name = "pullauta"
-version = "2.10.0-rc"
+version = "2.10.0-rc2"
 dependencies = [
  "anyhow",
  "bincode",
+ "bytemuck",
  "env_logger",
  "image",
  "imageproc",
  "las",
- "liblzma",
  "log",
  "rand 0.9.2",
  "rust-ini",
@@ -2117,9 +2131,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "4.3.0"
+version = "4.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9aed4ac33e8eb078c89e6cbb1d5c4c7703ec6d299fc3e7c3695af8f8b423468b"
+checksum = "d5649b9d3f6261c498410f5a25c95c4a7b0f4b84143a403fafa4e33a66178817"
 dependencies = [
  "arbitrary",
  "bzip2",

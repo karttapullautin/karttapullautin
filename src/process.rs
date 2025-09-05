@@ -16,12 +16,17 @@ use crate::crop;
 use crate::io::fs::FileSystem;
 use crate::io::heightmap::HeightMap;
 use crate::io::xyz::XyzInternalWriter;
+use crate::io::xyz::XyzRecord;
 use crate::knolls;
 use crate::merge;
 use crate::render;
 use crate::util::Timing;
 use crate::util::read_lines_no_alloc;
 use crate::vegetation;
+
+// compute the number of elements we can buffer for 50MB of memory usage during LAZ -> XyzRecord conversion
+const LAZ_BUFFER_SIZE: usize =
+    50 * 1024 * 1024 / (size_of::<las::Point>() + size_of::<XyzRecord>());
 
 pub fn process_zip(
     fs: &impl FileSystem,
@@ -120,21 +125,22 @@ pub fn process_tile(
             let mut parts = line.split(' ');
             let x = parts.next().unwrap().parse::<f64>().unwrap();
             let y = parts.next().unwrap().parse::<f64>().unwrap();
-            let z = parts.next().unwrap().parse::<f64>().unwrap();
+            let z = parts.next().unwrap().parse::<f32>().unwrap();
 
             let classification = parts.next().unwrap().parse::<u8>().unwrap();
             let number_of_returns = parts.next().unwrap().parse::<u8>().unwrap();
             let return_number = parts.next().unwrap().parse::<u8>().unwrap();
 
             writer
-                .write_record(&crate::io::xyz::XyzRecord {
+                .write_records(&[crate::io::xyz::XyzRecord {
                     x,
                     y,
                     z,
                     classification,
                     number_of_returns,
                     return_number,
-                })
+                    ..Default::default()
+                }])
                 .expect("Could not write record");
         })
         .expect("Could not read file");
@@ -164,18 +170,34 @@ pub fn process_tile(
         let mut writer =
             XyzInternalWriter::new(fs.create(&target_file).expect("Could not create writer"));
 
-        for ptu in reader.points() {
-            let pt = ptu.unwrap();
-            if thinfactor == 1.0 || rng.sample(randdist) {
-                writer.write_record(&crate::io::xyz::XyzRecord {
-                    x: pt.x * xfactor,
-                    y: pt.y * yfactor,
-                    z: pt.z * zfactor + zoff,
-                    classification: u8::from(pt.classification),
-                    number_of_returns: pt.number_of_returns,
-                    return_number: pt.return_number,
-                })?;
+        let mut points = Vec::with_capacity(LAZ_BUFFER_SIZE);
+        let mut records = Vec::with_capacity(LAZ_BUFFER_SIZE);
+        loop {
+            points.clear();
+            let n = reader.read_points_into(LAZ_BUFFER_SIZE as u64, &mut points)?;
+
+            if n == 0 {
+                break;
             }
+
+            // convert all read points to records
+            records.clear();
+            for pt in &points {
+                if thinfactor == 1.0 || rng.sample(randdist) {
+                    records.push(crate::io::xyz::XyzRecord {
+                        x: pt.x * xfactor,
+                        y: pt.y * yfactor,
+                        z: (pt.z * zfactor + zoff) as f32,
+                        classification: u8::from(pt.classification),
+                        number_of_returns: pt.number_of_returns,
+                        return_number: pt.return_number,
+                        ..Default::default()
+                    });
+                }
+            }
+
+            // write all at once
+            writer.write_records(&records)?;
         }
         writer.finish().expect("Unable to finish writing");
     } else if filename.ends_with(".xyz.bin") {
@@ -415,6 +437,7 @@ pub fn batch_process(conf: &Config, fs: &impl FileSystem, thread: &String, has_z
         let mut writer =
             XyzInternalWriter::new(fs.create(&tmp_filename).expect("Could not create writer"));
 
+        // read points from all LAZ files that have an overlap with the main tile file
         for laz_p in &laz_files {
             let laz = laz_p.as_path().file_name().unwrap().to_str().unwrap();
             let mut file = fs.open(format!("{lazfolder}/{laz}")).unwrap();
@@ -426,25 +449,44 @@ pub fn batch_process(conf: &Config, fs: &impl FileSystem, thread: &String, has_z
             {
                 let mut reader = Reader::new(fs.open(laz_p).expect("Could not open file"))
                     .expect("Could not create reader");
-                for ptu in reader.points() {
-                    let pt = ptu.unwrap();
-                    if pt.x > minx2
-                        && pt.x < maxx2
-                        && pt.y > miny2
-                        && pt.y < maxy2
-                        && (thinfactor == 1.0 || rng.sample(randdist))
-                    {
-                        writer
-                            .write_record(&crate::io::xyz::XyzRecord {
+
+                let mut points = Vec::with_capacity(LAZ_BUFFER_SIZE);
+                let mut records = Vec::with_capacity(LAZ_BUFFER_SIZE);
+                loop {
+                    points.clear();
+                    let n = reader
+                        .read_points_into(LAZ_BUFFER_SIZE as u64, &mut points)
+                        .expect("could not read LAZ points");
+
+                    if n == 0 {
+                        break;
+                    }
+
+                    // convert all read points to records
+                    records.clear();
+                    for pt in &points {
+                        if pt.x > minx2
+                            && pt.x < maxx2
+                            && pt.y > miny2
+                            && pt.y < maxy2
+                            && (thinfactor == 1.0 || rng.sample(randdist))
+                        {
+                            records.push(crate::io::xyz::XyzRecord {
                                 x: pt.x,
                                 y: pt.y,
-                                z: pt.z + zoff,
+                                z: (pt.z + zoff) as f32,
                                 classification: u8::from(pt.classification),
                                 number_of_returns: pt.number_of_returns,
                                 return_number: pt.return_number,
-                            })
-                            .expect("Could not write record");
+                                ..Default::default()
+                            });
+                        }
                     }
+
+                    // write all at once
+                    writer
+                        .write_records(&records)
+                        .expect("Could not write records");
                 }
             }
         }

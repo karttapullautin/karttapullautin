@@ -16,17 +16,19 @@ pub fn internal2xyz(fs: &impl FileSystem, input: &str, output: &str) -> std::io:
         let mut reader = xyz::XyzInternalReader::new(fs.open(Path::new(input))?)?;
         let mut writer = fs.create(output)?;
 
-        while let Some(record) = reader.next()? {
-            writeln!(
-                writer,
-                "{} {} {} {} {} {}",
-                record.x,
-                record.y,
-                record.z,
-                record.classification,
-                record.number_of_returns,
-                record.return_number
-            )?;
+        while let Some(record) = reader.next_chunk()? {
+            for record in record {
+                writeln!(
+                    writer,
+                    "{} {} {} {} {} {}",
+                    record.x,
+                    record.y,
+                    record.z,
+                    record.classification,
+                    record.number_of_returns,
+                    record.return_number
+                )?;
+            }
         }
     } else if input.ends_with(".hmap") {
         let hmap = HeightMap::from_file(fs, input)?;
