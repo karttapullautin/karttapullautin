@@ -27,8 +27,6 @@ pub fn makevege(
     let hmap = HeightMap::from_bytes(&mut reader)?;
 
     // in world coordinates
-    let xstart = hmap.xoffset;
-    let ystart = hmap.yoffset;
     let size = hmap.scale;
     let xyz = &hmap.grid;
 
@@ -60,16 +58,17 @@ pub fn makevege(
 
     let xyz_file_in = tmpfolder.join("xyztemp.xyz.bin");
 
-    let xmin = xstart;
-    let ymin = ystart;
-    let mut xmax: f64 = f64::MIN;
-    let mut ymax: f64 = f64::MIN;
+    let xmin = hmap.minx();
+    let ymin = hmap.miny();
+    let xmax = hmap.maxx();
+    let ymax = hmap.maxy();
 
-    let w_block = ((hmap.maxx() - xmin) / block + 0.5).ceil() as usize;
-    let h_block = ((hmap.maxy() - ymin) / block + 0.5).ceil() as usize;
+    // here we overlay two other grids on top of the heightmap, but with the same origin
+    let w_block = ((xmax - xmin) / block).ceil() as usize;
+    let h_block = ((ymax - ymin) / block).ceil() as usize;
 
-    let w_3 = ((hmap.maxx() - xmin) / 3.0).ceil() as usize;
-    let h_3 = ((hmap.maxy() - ymin) / 3.0).ceil() as usize;
+    let w_3 = ((xmax - xmin) / 3.0).ceil() as usize;
+    let h_3 = ((ymax - ymin) / 3.0).ceil() as usize;
 
     let mut top = Vec2D::new(w_block, h_block, 0.0); // block
     let mut yhit = Vec2D::new(w_3, h_3, 0_u32); // 3.0
@@ -87,32 +86,24 @@ pub fn makevege(
                 let r4 = r.number_of_returns;
                 let r5 = r.return_number;
 
-                if xmax < x {
-                    xmax = x;
+                let xx = ((x - xmin) / block) as usize;
+                let yy = ((y - ymin) / block) as usize;
+                let t = &mut top[(xx, yy)];
+                if h > *t {
+                    *t = h;
                 }
-                if ymax < y {
-                    ymax = y;
-                }
-                if x > xmin && y > ymin {
-                    let xx = ((x - xmin) / block) as usize;
-                    let yy = ((y - ymin) / block) as usize;
-                    let t = &mut top[(xx, yy)];
-                    if h > *t {
-                        *t = h;
-                    }
-                    let xx = ((x - xmin) / 3.0) as usize;
-                    let yy = ((y - ymin) / 3.0) as usize;
+                let xx = ((x - xmin) / 3.0) as usize;
+                let yy = ((y - ymin) / 3.0) as usize;
 
-                    if r3 == 2
-                        || h < yellowheight
-                            + xyz[(((x - xmin) / size) as usize, ((y - ymin) / size) as usize)]
-                    {
-                        yhit[(xx, yy)] += 1;
-                    } else if r4 == 1 && r5 == 1 {
-                        noyhit[(xx, yy)] += yellowfirstlast;
-                    } else {
-                        noyhit[(xx, yy)] += 1;
-                    }
+                if r3 == 2
+                    || h < yellowheight
+                        + xyz[(((x - xmin) / size) as usize, ((y - ymin) / size) as usize)]
+                {
+                    yhit[(xx, yy)] += 1;
+                } else if r4 == 1 && r5 == 1 {
+                    noyhit[(xx, yy)] += yellowfirstlast;
+                } else {
+                    noyhit[(xx, yy)] += 1;
                 }
             }
 
@@ -129,8 +120,8 @@ pub fn makevege(
 
     let step: f32 = 6.0;
 
-    let w_block_step = ((xmax - xmin) / (block * step as f64)).ceil() as usize + 1;
-    let h_block_step = ((ymax - ymin) / (block * step as f64)).ceil() as usize + 1;
+    let w_block_step = ((xmax - xmin) / (block * step as f64)).ceil() as usize;
+    let h_block_step = ((ymax - ymin) / (block * step as f64)).ceil() as usize;
 
     #[derive(Default, Clone)]
     struct UggItem {
@@ -151,77 +142,93 @@ pub fn makevege(
                 let r4 = r.number_of_returns;
                 let r5 = r.return_number;
 
-                if x > xmin && y > ymin {
-                    if r5 == 1 {
-                        let xx = ((x - xmin) / block + 0.5) as usize;
-                        let yy = ((y - ymin) / block + 0.5) as usize;
-                        firsthit[(xx, yy)] += 1;
-                    }
+                if r5 == 1 {
+                    let xx = ((x - xmin) / block) as usize;
+                    let yy = ((y - ymin) / block) as usize;
+                    firsthit[(xx, yy)] += 1;
+                }
 
+                // linear interpolation of the height at the point based on the surrpoinding cells in the heightmap
+                let thelele = {
                     let xx = ((x - xmin) / size) as usize;
                     let yy = ((y - ymin) / size) as usize;
+
                     let a = xyz[(xx, yy)];
-                    let b = xyz[(xx + 1, yy)];
-                    let c = xyz[(xx, yy + 1)];
-                    let d = xyz[(xx + 1, yy + 1)];
+
+                    // if we are on the edge, simply extend the values
+                    let (b, c, d) = if xx < xyz.width() - 1 && yy < xyz.height() - 1 {
+                        // inside, take all values
+                        (xyz[(xx + 1, yy)], xyz[(xx, yy + 1)], xyz[(xx + 1, yy + 1)])
+                    } else if xx < xyz.width() - 1 {
+                        // on bottom edge, extend downwards
+                        (xyz[(xx + 1, yy)], a, a)
+                    } else if yy < xyz.height() - 1 {
+                        // on right edge, extend to the right
+                        (a, xyz[(xx, yy + 1)], a)
+                    } else {
+                        // in corner, use this height for all
+                        (a, a, a)
+                    };
 
                     let distx = (x - xmin) / size - xx as f64;
                     let disty = (y - ymin) / size - yy as f64;
 
+                    // linear interpolation of the elevation at the point
                     let ab = a * (1.0 - distx) + b * distx;
                     let cd = c * (1.0 - distx) + d * distx;
-                    let thelele = ab * (1.0 - disty) + cd * disty;
-                    let xx = ((x - xmin) / block / (step as f64) + 0.5) as usize;
-                    let yy = ((y - ymin) / block / (step as f64) + 0.5) as usize;
-                    let hh = h - thelele;
-                    let ug_entry = &mut ug[(xx, yy)];
-                    if hh <= 1.2 {
-                        if r3 == 2 {
-                            ug_entry.ugg += 1.0;
-                        } else if hh > 0.25 {
-                            ug_entry.ug += 1;
-                        } else {
-                            ug_entry.ugg += 1.0;
-                        }
+                    ab * (1.0 - disty) + cd * disty
+                };
+
+                let xx = ((x - xmin) / block / (step as f64) + 0.5) as usize;
+                let yy = ((y - ymin) / block / (step as f64) + 0.5) as usize;
+                let hh = h - thelele;
+                let ug_entry = &mut ug[(xx, yy)];
+                if hh <= 1.2 {
+                    if r3 == 2 {
+                        ug_entry.ugg += 1.0;
+                    } else if hh > 0.25 {
+                        ug_entry.ug += 1;
                     } else {
-                        ug_entry.ugg += 0.05;
+                        ug_entry.ugg += 1.0;
+                    }
+                } else {
+                    ug_entry.ugg += 0.05;
+                }
+
+                let xx = ((x - xmin) / block) as usize;
+                let yy = ((y - ymin) / block) as usize;
+                if r3 == 2 || greenground >= hh {
+                    if r4 == 1 && r5 == 1 {
+                        ghit[(xx, yy)] += firstandlastreturnasground;
+                    } else {
+                        ghit[(xx, yy)] += 1;
+                    }
+                } else {
+                    let mut last = 1.0;
+                    if r4 == r5 {
+                        last = lastfactor;
+                        if hh < 5.0 {
+                            last = firstandlastfactor;
+                        }
                     }
 
-                    let xx = ((x - xmin) / block + 0.5) as usize;
-                    let yy = ((y - ymin) / block + 0.5) as usize;
-                    let yyy = ((y - ymin) / block) as usize; // necessary due to bug in perl version
-                    if r3 == 2 || greenground >= hh {
-                        if r4 == 1 && r5 == 1 {
-                            ghit[(xx, yyy)] += firstandlastreturnasground;
-                        } else {
-                            ghit[(xx, yyy)] += 1;
+                    // NOTE: the use of top here means that we cannot combine the two processing loops into one
+                    let top_val = top[(xx, yy)];
+                    for &Zone {
+                        low,
+                        high,
+                        roof,
+                        factor,
+                    } in config.zones.iter()
+                    {
+                        if hh >= low && hh < high && top_val - thelele < roof {
+                            greenhit[(xx, yy)] += (factor * last) as f32;
+                            break;
                         }
-                    } else {
-                        let mut last = 1.0;
-                        if r4 == r5 {
-                            last = lastfactor;
-                            if hh < 5.0 {
-                                last = firstandlastfactor;
-                            }
-                        }
+                    }
 
-                        let top_val = top[(xx, yy)];
-                        for &Zone {
-                            low,
-                            high,
-                            roof,
-                            factor,
-                        } in config.zones.iter()
-                        {
-                            if hh >= low && hh < high && top_val - thelele < roof {
-                                greenhit[(xx, yy)] += (factor * last) as f32;
-                                break;
-                            }
-                        }
-
-                        if greenhigh < hh {
-                            highit[(xx, yy)] += 1;
-                        }
+                    if greenhigh < hh {
+                        highit[(xx, yy)] += 1;
                     }
                 }
             }
@@ -232,16 +239,35 @@ pub fn makevege(
     // rebind the variables to be non-mut for the rest of the function
     let (firsthit, ug, ghit, greenhit, highit) = (firsthit, ug, ghit, greenhit, highit);
 
-    let w = (xmax - xmin).floor() / block;
-    let h = (ymax - ymin).floor() / block;
-    let wy = (xmax - xmin).floor() / 3.0;
-    let hy = (ymax - ymin).floor() / 3.0;
+    let img_width = (w_block as f64 * block) as u32;
+    let img_height = (h_block as f64 * block) as u32;
 
-    let scalefactor = config.scalefactor;
+    // render yellow as multiple small squares
+    let ye2 = Rgba([255, 219, 166, 255]);
+    let mut imgye2 = RgbaImage::from_pixel(img_width, img_height, Rgba([255, 255, 255, 0]));
+    for x in 0..(w_3 - 2) {
+        for y in 0..(h_3 - 2) {
+            let mut ghit2 = 0;
+            let mut highhit2 = 0;
 
-    let img_width = (w * block) as u32;
-    let img_height = (h * block) as u32;
+            // sum in a 2x2 area
+            for i in x..x + 2 {
+                for j in y..y + 2 {
+                    ghit2 += yhit[(i, j)];
+                    highhit2 += noyhit[(i, j)];
+                }
+            }
+            if ghit2 as f64 / (highhit2 as f64 + ghit2 as f64 + 0.01) > yellowthreshold {
+                draw_filled_rect_mut(
+                    &mut imgye2,
+                    Rect::at(x as i32 * 3 + 2, (h_3 as i32 - y as i32) * 3 - 3).of_size(3, 3),
+                    ye2,
+                );
+            }
+        }
+    }
 
+    // render green gradients
     let greens = (0..greenshades.len())
         .map(|i| {
             Rgb([
@@ -252,58 +278,38 @@ pub fn makevege(
         })
         .collect::<Vec<_>>();
 
-    let mut aveg = 0;
-    let mut avecount = 0;
+    // compute global average firsthit
+    let aveg = {
+        let mut aveg = 0;
+        let mut avecount = 0;
 
-    for x in 1..(w as usize) {
-        for y in 1..(h as usize) {
-            if ghit[(x, y)] > 1 {
-                aveg += firsthit[(x, y)];
-                avecount += 1;
-            }
-        }
-    }
-    let aveg = aveg as f64 / avecount as f64;
-    let ye2 = Rgba([255, 219, 166, 255]);
-    let mut imgye2 = RgbaImage::from_pixel(img_width, img_height, Rgba([255, 255, 255, 0]));
-    for x in 4..(wy as usize - 3) {
-        for y in 4..(hy as usize - 3) {
-            let mut ghit2 = 0;
-            let mut highhit2 = 0;
-
-            for i in x..x + 2 {
-                for j in y..y + 2 {
-                    ghit2 += yhit[(i, j)];
-                    highhit2 += noyhit[(i, j)];
+        for x in 0..w_block {
+            for y in 0..h_block {
+                if ghit[(x, y)] > 1 {
+                    aveg += firsthit[(x, y)];
+                    avecount += 1;
                 }
             }
-            if ghit2 as f64 / (highhit2 as f64 + ghit2 as f64 + 0.01) > yellowthreshold {
-                draw_filled_rect_mut(
-                    &mut imgye2,
-                    Rect::at(x as i32 * 3 + 2, (hy as i32 - y as i32) * 3 - 3).of_size(3, 3),
-                    ye2,
-                );
-            }
         }
-    }
+        aveg as f64 / avecount as f64
+    };
 
     let mut imggr1 = RgbImage::from_pixel(img_width, img_height, Rgb([255, 255, 255]));
-    for x in 2..w as usize {
-        for y in 2..h as usize {
+    for x in 0..w_block {
+        for y in 0..h_block {
             let roof = top[(x, y)]
                 - xyz[(
                     (x as f64 * block / size) as usize,
                     (y as f64 * block / size) as usize,
                 )];
 
+            // find lowest firsthit in a 5x5 area
             let mut firsthit2 = firsthit[(x, y)];
-            for i in (x - 2)..x + 3_usize {
-                for j in (y - 2)..y + 3_usize {
-                    if i < w_block && j < h_block {
-                        let value = firsthit[(i, j)];
-                        if value < firsthit2 {
-                            firsthit2 = value;
-                        }
+            for i in x.saturating_sub(2)..(x + 3).min(w_block) {
+                for j in y.saturating_sub(2)..(y + 3).min(h_block) {
+                    let value = firsthit[(i, j)];
+                    if value < firsthit2 {
+                        firsthit2 = value;
                     }
                 }
             }
@@ -338,7 +344,7 @@ pub fn makevege(
                         &mut imggr1,
                         Rect::at(
                             ((x as f64 - 0.5) * block) as i32 - addition,
-                            (((h - y as f64) - 0.5) * block) as i32 - addition,
+                            (((h_block as f64 - y as f64) - 0.5) * block) as i32 - addition,
                         )
                         .of_size(
                             (block as i32 + addition) as u32,
@@ -521,23 +527,25 @@ pub fn makevege(
 
     drop(imgwater); // explicitly drop imgwater to free memory
 
+    let scalefactor = config.scalefactor;
+
     let underg = Rgba([64, 121, 0, 255]);
     let tmpfactor = (600.0 / 254.0 / scalefactor) as f32;
 
     let bf32 = block as f32;
-    let hf32 = h as f32;
-    let ww = w as f32 * bf32;
+    let hf32 = h_block as f32;
+    let ww = w_block as f32 * bf32;
     let hh = hf32 * bf32;
     let mut x = 0.0_f32;
 
     let mut imgug = RgbaImage::from_pixel(
-        (w * block * 600.0 / 254.0 / scalefactor) as u32,
-        (h * block * 600.0 / 254.0 / scalefactor) as u32,
+        (w_block as f64 * block * 600.0 / 254.0 / scalefactor) as u32,
+        (h_block as f64 * block * 600.0 / 254.0 / scalefactor) as u32,
         Rgba([255, 255, 255, 0]),
     );
     let mut img_ug_bit = GrayImage::from_pixel(
-        (w * block * 600.0 / 254.0 / scalefactor) as u32,
-        (h * block * 600.0 / 254.0 / scalefactor) as u32,
+        (w_block as f64 * block * 600.0 / 254.0 / scalefactor) as u32,
+        (h_block as f64 * block * 600.0 / 254.0 / scalefactor) as u32,
         Luma([0x00]),
     );
     loop {

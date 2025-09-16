@@ -23,14 +23,16 @@ impl HeightMap {
     pub fn miny(&self) -> f64 {
         self.yoffset
     }
-    /// Get the maximum x-coordinate of the heightmap
+    /// Get the maximum x-coordinate of the heightmap. This is the coordinate farthest away from zero (eg. the right side of the grid),
+    /// which actually does not lie in a cell in the grid, but rather at the edge of the last cell.
     pub fn maxx(&self) -> f64 {
-        self.xoffset + self.scale * (self.grid.width().saturating_sub(1)) as f64
+        self.xoffset + self.scale * self.grid.width() as f64
     }
 
-    /// Get the maximum y-coordinate of the heightmap
+    /// Get the maximum y-coordinate of the heightmap. This is the coordinate farthest away from zero (eg. the top side of the grid),
+    /// which actually does not lie in a cell in the grid, but rather at the edge of the last cell.
     pub fn maxy(&self) -> f64 {
-        self.yoffset + self.scale * (self.grid.height().saturating_sub(1)) as f64
+        self.yoffset + self.scale * self.grid.height() as f64
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (f64, f64, f64)> + '_ {
