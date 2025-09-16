@@ -163,8 +163,14 @@ pub fn process_tile(
         let mut rng = rand::rng();
         let randdist = rand::distr::Bernoulli::new(thinfactor).unwrap();
 
-        let mut reader = Reader::new(fs.open(input_file).expect("Could not open file"))
-            .expect("Could not create reader");
+        let options = las::ReaderOptions::default().with_laz_parallelism(if config.laz_parallell {
+            las::LazParallelism::Yes
+        } else {
+            las::LazParallelism::No
+        });
+        let mut reader =
+            Reader::with_options(fs.open(input_file).expect("Could not open file"), options)
+                .expect("Could not create reader");
 
         debug!("Writing records to {:?}", &target_file);
         let mut writer =
@@ -404,6 +410,12 @@ pub fn batch_process(conf: &Config, fs: &impl FileSystem, thread: &String, has_z
         }
     }
 
+    let options = las::ReaderOptions::default().with_laz_parallelism(if conf.laz_parallell {
+        las::LazParallelism::Yes
+    } else {
+        las::LazParallelism::No
+    });
+
     for laz_path in &laz_files {
         let laz = laz_path.file_name().unwrap().to_str().unwrap();
         let outfile = format!("{batchoutfolder}/{laz}.png");
@@ -447,8 +459,9 @@ pub fn batch_process(conf: &Config, fs: &impl FileSystem, thread: &String, has_z
                 && header.max_y > miny2
                 && header.min_y < maxy2
             {
-                let mut reader = Reader::new(fs.open(laz_p).expect("Could not open file"))
-                    .expect("Could not create reader");
+                let mut reader =
+                    Reader::with_options(fs.open(laz_p).expect("Could not open file"), options)
+                        .expect("Could not create reader");
 
                 let mut points = Vec::with_capacity(LAZ_BUFFER_SIZE);
                 let mut records = Vec::with_capacity(LAZ_BUFFER_SIZE);
@@ -572,7 +585,7 @@ pub fn batch_process(conf: &Config, fs: &impl FileSystem, thread: &String, has_z
             )
             .expect("Unable to write to file");
 
-            pgw_file_out.flush().unwrap();
+            drop(pgw_file_out);
             fs.copy(
                 Path::new(&format!("pullautus{thread}.pgw")),
                 Path::new(&format!("pullautus_depr{thread}.pgw")),
@@ -705,7 +718,7 @@ pub fn batch_process(conf: &Config, fs: &impl FileSystem, thread: &String, has_z
                     maxy - tfw0 / 2.0
                 )
                 .expect("Unable to write to file");
-                pgw_file_out.flush().unwrap();
+                drop(pgw_file_out);
 
                 let mut orig_img_reader = image::ImageReader::new(
                     fs.open(format!("temp{thread}/undergrowth.png"))
@@ -767,7 +780,7 @@ pub fn batch_process(conf: &Config, fs: &impl FileSystem, thread: &String, has_z
                 )
                 .expect("Unable to write to file");
 
-                pgw_file_out.flush().unwrap();
+                drop(pgw_file_out);
 
                 if vege_bitmode {
                     let mut orig_img_reader = image::ImageReader::new(

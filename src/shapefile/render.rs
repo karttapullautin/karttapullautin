@@ -2,9 +2,10 @@ use std::{
     error::Error,
     path::{Path, PathBuf},
     str::FromStr,
+    time::Duration,
 };
 
-use log::info;
+use log::{debug, info};
 
 use crate::{
     config::Config,
@@ -78,16 +79,19 @@ pub fn render(
     let outh = h * 600.0 / 254.0 / scalefactor;
 
     // TODO: only allocate the canvas that are actually used... in a lazy way
-    let mut imgbrown = Canvas::new(outw as i32, outh as i32);
-    let mut imgbrowntop = Canvas::new(outw as i32, outh as i32);
-    let mut imgblack = Canvas::new(outw as i32, outh as i32);
-    let mut imgblacktop = Canvas::new(outw as i32, outh as i32);
-    let mut imgyellow = Canvas::new(outw as i32, outh as i32);
-    let mut imgblue = Canvas::new(outw as i32, outh as i32);
-    let mut imgmarsh = Canvas::new(outw as i32, outh as i32);
-    let mut imgtempblack = Canvas::new(outw as i32, outh as i32);
-    let mut imgtempblacktop = Canvas::new(outw as i32, outh as i32);
-    let mut imgblue2 = Canvas::new(outw as i32, outh as i32);
+    let (width, height) = (outw as u32, outh as u32);
+    let mut imgbrown = Canvas::new(width, height);
+    let mut imgbrowntop = Canvas::new(width, height);
+    let mut imgblack = Canvas::new(width, height);
+    let mut imgblacktop = Canvas::new(width, height);
+    let mut imgyellow = Canvas::new(width, height);
+    let mut imgolive = Canvas::new(width, height);
+    let mut imgparkings = Canvas::new(width, height);
+    let mut imgblue = Canvas::new(width, height);
+    let mut imgmarsh = Canvas::new(width, height);
+    let mut imgtempblack = Canvas::new(width, height);
+    let mut imgtempblacktop = Canvas::new(width, height);
+    let mut imgblue2 = Canvas::new(width, height);
 
     let white = (255, 255, 255);
     let black = (0, 0, 0);
@@ -116,23 +120,27 @@ pub fn render(
     }
 
     info!("Processing shapefiles: {shp_files:?}");
+    let mut total_elapsed = Duration::ZERO;
 
     for shp_file in shp_files.iter() {
         let file = shp_file.as_path().file_name().unwrap().to_str().unwrap();
         let mut file = shapetmpfolder.join(file);
 
         // drawshape comes here
-        let mut reader = shapefile::Reader::from_path(&file)?;
+        let mut reader = fs.read_shapefile(file.clone())?;
         let bbox = reader.header().bbox;
         let minx = (600.0 / 254.0 / scalefactor * (bbox.min.x - x0)).floor();
         let maxy = (600.0 / 254.0 / scalefactor * (y0 - bbox.min.y)).floor();
         let maxx = (600.0 / 254.0 / scalefactor * (bbox.max.x - x0)).floor();
         let miny = (600.0 / 254.0 / scalefactor * (y0 - bbox.max.y)).floor();
+        log::debug!("Bounding box: {bbox:?}");
         if minx > outw || maxx < 0.0 || miny > outh || maxy < 0.0 {
+            info!("Skipping shapefile {}, out of bounds.", file.display());
             continue;
         }
-        info!("Processing shapefile: {file:?}");
 
+        info!("Processing shapefile: {}", file.display());
+        let start = std::time::Instant::now();
         for shape_record in reader.iter_shapes_and_records() {
             let (shape, record) = shape_record
                 .unwrap_or_else(|_err: shapefile::Error| (Shape::NullShape, Record::default()));
@@ -342,7 +350,7 @@ pub fn render(
                     area = true;
                     color = Some(olive);
                     border = 0.0;
-                    image = "yellow";
+                    image = "olive";
                 }
 
                 // airport runway, car parkings
@@ -350,7 +358,7 @@ pub fn render(
                     area = true;
                     color = Some(brown);
                     border = 0.0;
-                    image = "yellow";
+                    image = "parkings";
                 }
 
                 if mtkskip.contains(&luokka) {
@@ -541,7 +549,7 @@ pub fn render(
                     if isom == "527" {
                         area = true;
                         color = Some(olive);
-                        image = "yellow";
+                        image = "olive";
                     }
                     // car parkings border
                     if isom == "529.1" || isom == "301.1" {
@@ -553,7 +561,7 @@ pub fn render(
                     if isom == "529" {
                         area = true;
                         color = Some(brown);
-                        image = "yellow";
+                        image = "parkings";
                     }
                     // car park top
                     if isom == "529T" {
@@ -701,6 +709,14 @@ pub fn render(
                         imgyellow.set_color(color);
                         imgyellow.draw_filled_polygon(&polys)
                     }
+                    if image == "olive" {
+                        imgolive.set_color(color);
+                        imgolive.draw_filled_polygon(&polys)
+                    }
+                    if image == "parkings" {
+                        imgparkings.set_color(color);
+                        imgparkings.draw_filled_polygon(&polys)
+                    }
                     if image == "marsh" {
                         imgmarsh.set_color(color);
                         imgmarsh.draw_filled_polygon(&polys)
@@ -712,6 +728,10 @@ pub fn render(
                 }
             }
         }
+
+        let elapsed = start.elapsed();
+        debug!("Time elapsed in drawing shapes: {elapsed:.2?}");
+        total_elapsed += elapsed;
 
         // remove the shapefile and all associated files
         if !batch {
@@ -725,6 +745,7 @@ pub fn render(
             }
         }
     }
+    info!("Total time elapsed in drawing shapes: {total_elapsed:.2?}",);
     imgblue2.overlay(&mut imgblue, 0.0, 0.0);
     imgblue2.overlay(&mut imgblue, 1.0, 0.0);
     imgblue2.overlay(&mut imgblue, 0.0, 1.0);
@@ -746,7 +767,9 @@ pub fn render(
     imgblacktop.overlay(&mut imgtempblacktop, 0.0, 0.0);
     imgblack.overlay(&mut imgtempblack, 0.0, 0.0);
 
-    imgyellow.overlay(&mut imgmarsh, 0.0, 0.0);
+    imgolive.overlay(&mut imgyellow, 0.0, 0.0);
+    imgolive.overlay(&mut imgparkings, 0.0, 0.0);
+    imgolive.overlay(&mut imgmarsh, 0.0, 0.0);
 
     imgblue.overlay(&mut imgblack, 0.0, 0.0);
     imgblue.overlay(&mut imgbrown, 0.0, 0.0);
@@ -755,16 +778,20 @@ pub fn render(
 
     let low_file = tmpfolder.join("low.png");
     if fs.exists(&low_file) {
-        let mut low = Canvas::load_from(&low_file);
-        imgyellow.overlay(&mut low, 0.0, 0.0);
+        let mut low = Canvas::load_from(fs, &low_file).expect("could not load low.png");
+        imgolive.overlay(&mut low, 0.0, 0.0);
     }
 
     let high_file = tmpfolder.join("high.png");
     if fs.exists(&high_file) {
-        let mut high = Canvas::load_from(&high_file);
+        let mut high = Canvas::load_from(fs, &high_file).expect("could not load high.png");
         imgblue.overlay(&mut high, 0.0, 0.0);
     }
-    imgblue.save_as(&high_file);
-    imgyellow.save_as(&low_file);
+    imgblue
+        .save_as(fs, &high_file)
+        .expect("could not save high.png");
+    imgolive
+        .save_as(fs, &low_file)
+        .expect("could not save low.png");
     Ok(())
 }

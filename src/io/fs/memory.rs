@@ -1,4 +1,5 @@
 use super::FileSystem;
+use anyhow::Context;
 use rustc_hash::FxHashMap as HashMap;
 
 use core::str;
@@ -440,6 +441,58 @@ impl FileSystem for MemoryFileSystem {
         // copy the data
         let mut to_data = to_file.data.write().expect("file data lock poisoned");
         *to_data = from_data;
+
+        Ok(())
+    }
+
+    fn extract_zip(
+        &self,
+        archive: impl AsRef<Path>,
+        target: impl AsRef<Path>,
+    ) -> anyhow::Result<()> {
+        let file = self.open(&archive).context("opening zip file")?;
+        let mut zip_archive = zip::ZipArchive::new(file).context("reading zip archive")?;
+        log::info!(
+            "Extracting {:?} kB from {}",
+            zip_archive.decompressed_size().map(|s| s / 1024),
+            archive.as_ref().display()
+        );
+
+        for i in 0..zip_archive.len() {
+            let mut file = zip_archive
+                .by_index(i)
+                .with_context(|| format!("get file index {i}"))?;
+
+            if file.is_symlink() {
+                log::warn!(
+                    "Skipping symlink {} in zip archive as it is not supported",
+                    file.name(),
+                );
+                continue;
+            }
+
+            let Some(name) = file.enclosed_name() else {
+                log::warn!(
+                    "Skipping file {} in zip archive as it is not a valid path",
+                    file.name(),
+                );
+                continue;
+            };
+
+            let target_name = target.as_ref().join(&name);
+
+            if file.is_dir() {
+                log::debug!("Creating directory {}", target_name.display());
+                self.create_dir_all(&target_name)?;
+                continue;
+            }
+
+            log::debug!("Extracting file {}", name.display());
+
+            // at this point the file is a file and so we copy it into the FS
+            let mut output = self.create(target_name)?;
+            std::io::copy(&mut file, &mut output)?;
+        }
 
         Ok(())
     }

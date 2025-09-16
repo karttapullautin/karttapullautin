@@ -20,13 +20,7 @@ pub fn unzip_and_render(
 ) -> Result<(), Box<dyn Error>> {
     for zip_name in filenames.iter() {
         info!("Opening zip file {zip_name}");
-        let file = fs.open(zip_name).unwrap();
-        let mut archive = zip::ZipArchive::new(file).unwrap();
-        info!(
-            "Extracting {:?} MB from {zip_name}",
-            archive.decompressed_size().map(|s| s / 1024 / 1024)
-        );
-        archive.extract(tmpfolder).unwrap();
+        fs.extract_zip(zip_name, tmpfolder)?;
     }
 
     render::render(fs, config, tmpfolder, false).unwrap();
@@ -36,16 +30,10 @@ pub fn unzip_and_render(
 
 /// Unzips the shape files to specific folder
 pub fn unzip_shapefiles(fs: &impl FileSystem, filenames: &[String]) -> Result<(), Box<dyn Error>> {
+    let tmpfolder = PathBuf::from("temp_shapefiles".to_string());
     for zip_name in filenames.iter() {
         info!("Opening zip file {zip_name}");
-        let file = fs.open(zip_name).unwrap();
-        let mut archive = zip::ZipArchive::new(file).unwrap();
-        info!(
-            "Extracting {:?} MB from {zip_name}",
-            archive.decompressed_size().map(|s| s / 1024 / 1024)
-        );
-        let tmpfolder = PathBuf::from("temp_shapefiles".to_string());
-        archive.extract(tmpfolder).unwrap();
+        fs.extract_zip(zip_name, &tmpfolder)?;
     }
     Ok(())
 }

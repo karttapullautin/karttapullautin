@@ -21,9 +21,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.88
       - uses: Swatinem/rust-cache@v2
 
-      - name: Install dependencies
-        run: sudo apt install libfreetype-dev libfontconfig-dev
-
       - name: Check
         run: cargo check --all-features --all-targets
 
@@ -37,9 +34,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.88
       - uses: Swatinem/rust-cache@v2
-
-      - name: Install dependencies
-        run: sudo apt install libfreetype-dev libfontconfig-dev
 
       - name: Unit Tests
         run: cargo test

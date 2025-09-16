@@ -131,7 +131,7 @@ fn merge_png(
         ymax
     )
     .expect("Could not write to file");
-    tfw_file.flush().expect("Cannot flush");
+    drop(tfw_file);
     fs.copy(
         Path::new(&format!("{outfilename}.pgw")),
         Path::new(&format!("{outfilename}.jgw")),

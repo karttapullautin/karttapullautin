@@ -16,9 +16,6 @@ jobs:
         with:
           rust-version: stable
 
-      - name: Install dependencies
-        run: sudo apt install libfreetype-dev libfontconfig-dev ninja-build
-
       - name: Compile
         shell: bash
         run: |

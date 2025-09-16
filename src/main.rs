@@ -415,6 +415,13 @@ fn main() {
                 println!("Copying {} into memory fs", path.display());
                 fs.load_from_disk(&path, &path).unwrap();
             }
+            // if there is an input vector file, copy it over as well
+
+            if !config.vectorconf.is_empty() {
+                let path = Path::new(&config.vectorconf);
+                println!("Copying {} into memory fs", path.display());
+                fs.load_from_disk(path, path).unwrap();
+            }
 
             launch_threads(fs.clone(), proc, &config, &zip_files);
 
