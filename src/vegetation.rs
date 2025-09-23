@@ -120,8 +120,8 @@ pub fn makevege(
 
     let step: f32 = 6.0;
 
-    let w_block_step = ((xmax - xmin) / (block * step as f64)).ceil() as usize;
-    let h_block_step = ((ymax - ymin) / (block * step as f64)).ceil() as usize;
+    let w_block_step = ((xmax - xmin) / (block * step as f64)).ceil() as usize + 1;
+    let h_block_step = ((ymax - ymin) / (block * step as f64)).ceil() as usize + 1;
 
     #[derive(Default, Clone)]
     struct UggItem {
