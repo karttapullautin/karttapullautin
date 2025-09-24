@@ -179,8 +179,8 @@ pub fn makevege(
                     ab * (1.0 - disty) + cd * disty
                 };
 
-                let xx = ((x - xmin) / block / (step as f64) + 0.5) as usize;
-                let yy = ((y - ymin) / block / (step as f64) + 0.5) as usize;
+                let xx = ((x - xmin) / block / (step as f64)) as usize;
+                let yy = ((y - ymin) / block / (step as f64)) as usize;
                 let hh = h - thelele;
                 let ug_entry = &mut ug[(xx, yy)];
                 if hh <= 1.2 {
