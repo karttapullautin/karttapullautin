@@ -62,7 +62,10 @@ pub fn makevege(
     let ymin = hmap.miny();
     let xmax = hmap.maxx();
     let ymax = hmap.maxy();
-
+    // xmax/ymax are always slightly superior to the max x/y values within the hmap
+    // this mean (xmax - xmin).ceil() > (x - xmin).floor() is always true
+    // for more detail why, check the xyz2heightmap function and the heightmap.rs file
+    
     // here we overlay two other grids on top of the heightmap, but with the same origin
     let w_block = ((xmax - xmin) / block).ceil() as usize;
     let h_block = ((ymax - ymin) / block).ceil() as usize;
