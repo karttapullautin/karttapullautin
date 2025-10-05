@@ -127,9 +127,9 @@ pub fn process_tile(
             let y = parts.next().unwrap().parse::<f64>().unwrap();
             let z = parts.next().unwrap().parse::<f32>().unwrap();
 
-            let classification = parts.next().unwrap().parse::<u8>().unwrap();
-            let number_of_returns = parts.next().unwrap().parse::<u8>().unwrap();
-            let return_number = parts.next().unwrap().parse::<u8>().unwrap();
+            let classification = parts.next().unwrap_or("2").parse::<u8>().unwrap();
+            let number_of_returns = parts.next().unwrap_or("0").parse::<u8>().unwrap();
+            let return_number = parts.next().unwrap_or("0").parse::<u8>().unwrap();
 
             writer
                 .write_records(&[crate::io::xyz::XyzRecord {
