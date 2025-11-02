@@ -568,10 +568,14 @@ pub fn smoothjoin(
                         let xx = ((xm - xstart) / size) as usize;
                         let yy = ((ym - ystart) / size) as usize;
                         let h1 = xyz[(xx, yy)];
-                        let h2 = xyz[(xx, yy + 1)];
-                        let h3 = h1 * (yy as f64 + 1.0 - (ym - ystart) / size)
-                            + h2 * ((ym - ystart) / size - yy as f64);
-                        h = (h3 / interval + 0.5).floor() * interval;
+                        if yy < xyz.height() - 1 {
+                            let h2 = xyz[(xx, yy + 1)];
+                            let h3 = h1 * (yy as f64 + 1.0 - (ym - ystart) / size)
+                                + h2 * ((ym - ystart) / size - yy as f64);
+                            h = (h3 / interval + 0.5).floor() * interval;
+                        } else {
+                            h = h1;
+                        }
                         m += el_x_len;
                     } else if m < el_x_len - 1
                         && (el_y[l][m] - ystart) / size == ((el_y[l][m] - ystart) / size).floor()
@@ -579,10 +583,14 @@ pub fn smoothjoin(
                         let xx = ((xm - xstart) / size) as usize;
                         let yy = ((ym - ystart) / size) as usize;
                         let h1 = xyz[(xx, yy)];
-                        let h2 = xyz[(xx + 1, yy)];
-                        let h3 = h1 * (xx as f64 + 1.0 - (xm - xstart) / size)
-                            + h2 * ((xm - xstart) / size - xx as f64);
-                        h = (h3 / interval + 0.5).floor() * interval;
+                        if xx < xyz.width() - 1 {
+                            let h2 = xyz[(xx + 1, yy)];
+                            let h3 = h1 * (xx as f64 + 1.0 - (xm - xstart) / size)
+                                + h2 * ((xm - xstart) / size - xx as f64);
+                            h = (h3 / interval + 0.5).floor() * interval;
+                        } else {
+                            h = h1;
+                        }
                         m += el_x_len;
                     } else {
                         m += 1;
