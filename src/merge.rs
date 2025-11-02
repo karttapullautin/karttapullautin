@@ -578,7 +578,7 @@ pub fn smoothjoin(
                         }
                         m += el_x_len;
                     } else if m < el_x_len - 1
-                        && (el_y[l][m] - ystart) / size == ((el_y[l][m] - ystart) / size).floor()
+                        && (ym - ystart) / size == ((ym - ystart) / size).floor()
                     {
                         let xx = ((xm - xstart) / size) as usize;
                         let yy = ((ym - ystart) / size) as usize;
