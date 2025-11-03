@@ -574,7 +574,7 @@ pub fn smoothjoin(
                                 + h2 * ((ym - ystart) / size - yy as f64);
                             h = (h3 / interval + 0.5).floor() * interval;
                         } else {
-                            h = h1;
+                            h = (h1 / interval + 0.5).floor() * interval;
                         }
                         m += el_x_len;
                     } else if m < el_x_len - 1
@@ -589,7 +589,7 @@ pub fn smoothjoin(
                                 + h2 * ((xm - xstart) / size - xx as f64);
                             h = (h3 / interval + 0.5).floor() * interval;
                         } else {
-                            h = h1;
+                            h = (h1 / interval + 0.5).floor() * interval;
                         }
                         m += el_x_len;
                     } else {
