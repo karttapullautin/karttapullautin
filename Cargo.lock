@@ -1121,7 +1121,7 @@ dependencies = [
 
 [[package]]
 name = "pullauta"
-version = "2.10.1"
+version = "2.10.3"
 dependencies = [
  "anyhow",
  "bincode",
