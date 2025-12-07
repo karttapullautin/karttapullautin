@@ -1,38 +1,43 @@
-# kp
-### ***Map Generator***
+# The "Map Machine" ***(Karttapullautin)***
+## What it this?
 
-Karttapullautin is an application that is designed to generate highly accurate maps out of LiDAR data input files. Built using the Rust programming language, Karttapullautin takes advantage of Rust's performance to deliver fast results on Linux, Mac and Windows.
+The rust-lang source code of the map generator application that go through the alias ***pullauta*** which is available as binary executable for Linux, Mac and Windows (find attachment in each releases).
 
-Karttapullautin supports a wide range of LiDAR data input file formats, namely LAS, LAZ, and XYZ files. The software includes advanced algorithms for filtering, classification, and feature extraction, ensuring that users can generate highly accurate maps with ease.
+## What is ***pullauta***?
 
-Due to its performance and accuracy, with its powerful features and fast results, Karttapullautin is a must-have tool for anyone willing to generate orienteering maps from LiDAR data.
+***pullauta*** is an application designed to generate highly accurate maps out of LiDAR data input files that supports many file formats, namely LAS, LAZ, and XYZ files. It uses advanced algorithms for filtering, classification, and feature extraction, ensuring that users can generate highly accurate maps with ease.
 
-## Usage
+## Download ***pullauta*** 
 
-Download the latest binary for your platform from https://github.com/karttapullautin/karttapullautin/releases/latest and extract the files where you want to use them.
+Download the latest binary for your platform (Linux, Mac or Windows) from https://github.com/karttapullautin/karttapullautin/releases/latest and extract the files where you want to use them.
 
-### Compiling code from source
+## Compiling ***pullauta*** from source code
 
-If your platform is not listed you must compile the binary.
+1) You need first to install the rust toolchain.
 
-You'll need to install the rust toolchain.
+ - See https://rustup.rs  
 
-See https://rustup.rs  
+2) Then download the latest code at https://github.com/karttapullautin/karttapullautin/releases/latest
 
-Then download the latest code at https://github.com/karttapullautin/karttapullautin/releases/latest and compile it.
+3) Finally compile it
+   
+    ```
+   cargo build --release
+    ```
 
-    cargo build --release
-
-The `pullauta` binary will be accessible in the `target/release/` directory. You can proceed and copy it to your desired directory.
-For maximum performance, it is recommended to compile targeting the native cpu by specifying the `target-cpu` flag. This makes sure that any instruction set extensions such as SIMD and FMA are used. This includes if your processor supports AVX, AVX2 and AVX512 (and NEON on ARM targets) as 
+    For maximum performance, it is recommended to compile targeting the native cpu by specifying the `target-cpu` flag. This makes sure that any instruction set extensions such as SIMD and FMA are used. This includes if your processor supports AVX, AVX2 and AVX512 (and NEON on ARM targets) as 
 the default release binaries are compiled without these enabled to be as portable as possible. If you have a relatively recent CPU (eg. Intel `skylake` or later) you should instead compile like this:
-
+    
+    ```
     RUSTFLAGS="-C target-cpu=native" cargo build --release
+    ```
+
+4) The ***pullauta*** binary will be accessible in the `target/release/` directory. You can proceed and copy it to your desired directory.
 
 
 ### Converting a LiDAR file
 
-Karttapullautin accepts .LAS, .LAZ or .XYZ file with classification (xyzc).
+***pullauta*** accepts .LAS, .LAZ or .XYZ file with classification (xyzc).
 
 You can run the `pullauta` executable with the path to your file as argument:  
     
