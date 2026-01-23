@@ -6,7 +6,7 @@ on:
 jobs:
   release:
     name: release macos x86_64
-    runs-on: macos-13
+    runs-on: macos-15-intel
 
     steps:
       - uses: actions/checkout@v3
