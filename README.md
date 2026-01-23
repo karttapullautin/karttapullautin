@@ -74,7 +74,7 @@ ogr2ogr --config OSM_USE_CUSTOM_INDEXING NO -skipfailures -f "ESRI Shapefile" ou
 zip -r -j map.shp.zip output_shapes/*
 ```
 
-Replace `EPSG:3387` by the coordinates ESPG codename of that the LAZ file uses.
+Replace `EPSG:3067` by the coordinates ESPG codename of that the LAZ file uses.
 
 You will have a zip file `map.shp.zip` that you can use with karttapullautin.
 
