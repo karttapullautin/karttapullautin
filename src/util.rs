@@ -133,22 +133,25 @@ impl Drop for Timing {
 pub fn read_object<R: std::io::Read, O: serde::de::DeserializeOwned>(
     mut reader: R,
 ) -> anyhow::Result<O> {
-    let value: bincode::serde::Compat<O> =
-        bincode::decode_from_std_read(&mut reader, bincode::config::standard())
-            .context("deserializing from file")?;
-    Ok(value.0)
+    // we first read all the bytes into memory, then deserialize since postcard otherwise requires
+    // a buffer whose size we cannot know in advance.
+    // See issues:
+    //  - https://github.com/jamesmunns/postcard/issues/140
+    //  - https://github.com/jamesmunns/postcard/issues/162
+    let mut bytes = Vec::new();
+    reader
+        .read_to_end(&mut bytes)
+        .context("reading from file")?;
+
+    let value = postcard::from_bytes(&bytes).context("deserializing file bytes")?;
+    Ok(value)
 }
 
 /// Helper to write an object to disk
 pub fn write_object<W: std::io::Write, O: serde::Serialize>(
-    mut writer: W,
+    writer: W,
     value: &O,
 ) -> anyhow::Result<()> {
-    bincode::encode_into_std_write(
-        bincode::serde::Compat(value),
-        &mut writer,
-        bincode::config::standard(),
-    )
-    .context("serializing to file")?;
+    postcard::to_io(value, writer).context("serializing to file")?;
     Ok(())
 }
