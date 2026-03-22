@@ -21,7 +21,7 @@ pub trait FileSystem: std::fmt::Debug {
     fn open(
         &self,
         path: impl AsRef<Path>,
-    ) -> Result<impl BufRead + Seek + Send + 'static, io::Error>;
+    ) -> Result<impl BufRead + Seek + Send + Sync + 'static, io::Error>;
 
     /// Open a file for writing. This is always Buffered.
     fn create(&self, path: impl AsRef<Path>) -> Result<impl Write + Seek, io::Error>;
