@@ -22,7 +22,7 @@ image = { version = "0.25", default-features = false, features = [
 	"jpeg",
 ] }
 
-imageproc = { version = "0.25.0", default-features = false, features = [
+imageproc = { version = "0.26", default-features = false, features = [
 	"rayon",
 ] }
 
