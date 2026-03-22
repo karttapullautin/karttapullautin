@@ -9,7 +9,7 @@ jobs:
     runs-on: macos-14
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
 
       - name: Install Rust
         uses: hecrj/setup-rust-action@v1.4.0
