@@ -133,8 +133,8 @@ impl Drop for Timing {
 pub fn read_object<R: std::io::Read, O: serde::de::DeserializeOwned>(
     mut reader: R,
 ) -> anyhow::Result<O> {
-    let value: bincode::serde::Compat<O> =
-        bincode::decode_from_std_read(&mut reader, bincode::config::standard())
+    let value: bincode_next::serde::Compat<O> =
+        bincode_next::decode_from_std_read(&mut reader, bincode_next::config::standard())
             .context("deserializing from file")?;
     Ok(value.0)
 }
@@ -144,10 +144,10 @@ pub fn write_object<W: std::io::Write, O: serde::Serialize>(
     mut writer: W,
     value: &O,
 ) -> anyhow::Result<()> {
-    bincode::encode_into_std_write(
-        bincode::serde::Compat(value),
+    bincode_next::encode_into_std_write(
+        bincode_next::serde::Compat(value),
         &mut writer,
-        bincode::config::standard(),
+        bincode_next::config::standard(),
     )
     .context("serializing to file")?;
     Ok(())
