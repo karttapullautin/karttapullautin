@@ -8,7 +8,7 @@ pub struct Config {
     pub processes: u64,
 
     /// If true, use parallel decompression for LAZ files.
-    pub laz_parallell: bool,
+    pub laz_parallel: bool,
 
     pub experimental_use_in_memory_fs: bool,
 
@@ -158,7 +158,7 @@ impl Config {
                 .unwrap_or(default)
         }
 
-        let laz_parallell: bool = gs.get("parallel_laz_decompression").unwrap_or("0") == "1";
+        let laz_parallel: bool = gs.get("parallel_laz_decompression").unwrap_or("0") == "1";
         let output_dxf: bool = gs.get("output_dxf").unwrap_or("0") == "1";
 
         let pnorthlinesangle: f64 = parse_typed(gs, "northlinesangle", 0.0);
@@ -352,7 +352,7 @@ impl Config {
             batch,
             processes,
             output_dxf,
-            laz_parallell,
+            laz_parallel,
             experimental_use_in_memory_fs,
             vegeonly,
             cliffsonly,

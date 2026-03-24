@@ -163,7 +163,7 @@ pub fn process_tile(
         let mut rng = rand::rng();
         let randdist = rand::distr::Bernoulli::new(thinfactor).unwrap();
 
-        let options = las::ReaderOptions::default().with_laz_parallelism(if config.laz_parallell {
+        let options = las::ReaderOptions::default().with_laz_parallelism(if config.laz_parallel {
             las::LazParallelism::Yes
         } else {
             las::LazParallelism::No
@@ -410,7 +410,7 @@ pub fn batch_process(conf: &Config, fs: &impl FileSystem, thread: &String, has_z
         }
     }
 
-    let options = las::ReaderOptions::default().with_laz_parallelism(if conf.laz_parallell {
+    let options = las::ReaderOptions::default().with_laz_parallelism(if conf.laz_parallel {
         las::LazParallelism::Yes
     } else {
         las::LazParallelism::No
