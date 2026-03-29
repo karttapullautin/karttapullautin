@@ -370,25 +370,14 @@ pub fn draw_curves(
     let mut size: f64 = 0.0;
     let mut xstart: f64 = 0.0;
     let mut ystart: f64 = 0.0;
-    let tfw_in = tmpfolder.join("vegetation.pgw");
-    let mut lines = fs.open(tfw_in).expect("PGW file does not exist").lines();
-    let x0 = lines
-        .nth(4)
-        .expect("no 4 line")
-        .expect("Could not read line 5")
-        .parse::<f64>()
-        .unwrap();
-    let y0 = lines
-        .next()
-        .expect("no 5 line")
-        .expect("Could not read line 6")
-        .parse::<f64>()
-        .unwrap();
 
     let heightmap_in = tmpfolder.join("xyz2.hmap");
     let mut reader = fs.open(heightmap_in)?;
     let hmap = HeightMap::from_bytes(&mut reader)?;
+
     let xyz = &hmap.grid;
+    let x0 = hmap.minx();
+    let y0 = hmap.maxy();
 
     let mut steepness = Vec2D::new(xyz.width(), xyz.height(), 0f64);
 
