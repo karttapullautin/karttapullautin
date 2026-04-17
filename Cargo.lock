@@ -237,6 +237,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "bufrw"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "394c22b416e3981206df472c3bcbbf9ae130883619aefc2199e6087517af1bba"
+
+[[package]]
 name = "built"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -442,10 +448,11 @@ dependencies = [
 
 [[package]]
 name = "dbase"
-version = "0.6.1"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b2ee10366b9a0956358110073ea66ab06d77169ee9955d32c9ba7b7b8d4e1c3"
+checksum = "15526d487321e5121f43efab7f9929f0f0581859b8d710fec545938b2d2d4489"
 dependencies = [
+ "bufrw",
  "byteorder",
  "time",
 ]
@@ -1641,9 +1648,9 @@ dependencies = [
 
 [[package]]
 name = "shapefile"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c318c0e76bc2d54086b2d936ae0ca92eab5b84eb73f5704c1d14dba33be643e3"
+checksum = "1843429773d609e4ee4b896899ab15530bc0509e128ed8312652c6b5c19ccd48"
 dependencies = [
  "byteorder",
  "dbase",

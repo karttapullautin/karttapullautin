@@ -30,7 +30,7 @@ las = { version = "0.9", features = ["laz", "laz-parallel"] }
 rand = "0.10"
 rust-ini = "0.21"
 rustc-hash = "2.0"
-shapefile = { version = "0.7.0", optional = true }
+shapefile = { version = "0.8.0", optional = true }
 tiny-skia = { version = "0.12", optional = true }
 zip = { version = "8.3", default-features = false, features = [
 	"bzip2",
