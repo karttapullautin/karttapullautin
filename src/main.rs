@@ -357,7 +357,6 @@ fn main() {
         .unwrap();
         return;
     }
-    let proc = config.processes;
     if command.is_empty() && batch {
         let Config { lazfolder, .. } = &*config;
 
@@ -389,7 +388,7 @@ fn main() {
                 fs.load_from_disk(path, path).unwrap();
             }
 
-            pullauta::process::launch_threads(fs.clone(), proc, &config, &zip_files);
+            pullauta::process::launch_threads(fs.clone(), config.clone(), &zip_files);
 
             // copy the output files back to disk
             std::fs::create_dir_all(&config.batchoutfolder).unwrap();
@@ -398,7 +397,7 @@ fn main() {
                 fs.save_to_disk(&path, &path).unwrap();
             }
         } else {
-            pullauta::process::launch_threads(fs, proc, &config, &zip_files);
+            pullauta::process::launch_threads(fs, config, &zip_files);
         }
         return;
     }

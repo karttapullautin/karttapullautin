@@ -22,6 +22,7 @@ use crate::io::xyz::XyzRecord;
 use crate::knolls;
 use crate::merge;
 use crate::render;
+use crate::util::Consumer;
 use crate::util::Timing;
 use crate::util::read_lines_no_alloc;
 use crate::vegetation;
@@ -35,32 +36,82 @@ const LAZ_BUFFER_SIZE: usize =
 /// the Config.
 pub fn launch_threads<F: FileSystem + Send + Clone + 'static>(
     fs: F,
-    proc: u64,
-    config: &Arc<Config>,
+    config: Arc<Config>,
     zip_files: &[String],
 ) {
+    // first unzip all zip files (if any) to a temporary folder, so that the threads can access the
+    // shapefiles without having to worry about unzipping them in parallel
     let shapefiletmpdir = PathBuf::from("temp_shapefiles".to_string());
     fs.create_dir_all(&shapefiletmpdir).unwrap();
     if !zip_files.is_empty() {
         crate::shapefile::unzip_shapefiles(&fs, zip_files).unwrap();
     }
+
+    // list all the files that we have to process
+
+    let mut laz_files: Vec<PathBuf> = Vec::new();
+    for path in fs.list(&config.lazfolder).unwrap() {
+        if let Some(extension) = path.extension() {
+            if extension == "laz" || extension == "las" {
+                laz_files.push(path);
+            }
+        }
+    }
+
+    info!("Found {} laz/las files to process", laz_files.len());
+
+    // TODO: check which files are alredy processed
+
+    // TODO: build universe by loading all headers etc here already
+    let laz_files = Arc::new(laz_files);
+
+    // insert them into the queue
+    let (tx, rx) = crate::util::make_queue::<PathBuf>();
+
+    // make sure the output directory exists
+    fs.create_dir_all(&config.batchoutfolder)
+        .expect("Could not create output folder");
+
+    // we only need to launch maximum as many threads as there are files to process
+    let num_threads = config.processes.min(laz_files.len() as u64) as usize;
+
     // do the processing
-    let mut handles: Vec<thread::JoinHandle<()>> = Vec::with_capacity((proc + 1) as usize);
-    for i in 0..proc {
+    let mut handles: Vec<thread::JoinHandle<()>> = Vec::with_capacity(num_threads);
+    for i in 0..num_threads {
         let config = config.clone();
         let fs = fs.clone();
+        let rx = rx.clone();
         let has_zip = !zip_files.is_empty();
+        let arc_laz_files = laz_files.clone();
+
         let handle = thread::spawn(move || {
             info!("Starting thread");
-            batch_process(&config, &fs, &format!("{}", i + 1), has_zip);
-            info!("Thread complete");
+            batch_process(
+                &config,
+                &fs,
+                &format!("{}", i + 1),
+                has_zip,
+                &arc_laz_files,
+                rx,
+            );
         });
         thread::sleep(std::time::Duration::from_millis(100));
         handles.push(handle);
     }
+
+    // we can now start sending the files to process to the threads
+    for laz in laz_files.iter() {
+        // TODO: send only the ids of the files
+        tx.push(laz.clone());
+    }
+
+    // we are done, close the producer and wait for all threads to exit
+    drop(tx);
     for handle in handles {
         handle.join().unwrap();
     }
+
+    // cleanup extracted shapefiles
     fs.remove_dir_all(&shapefiletmpdir).unwrap();
 }
 
@@ -411,7 +462,14 @@ pub fn process_tile(
     Ok(())
 }
 
-pub fn batch_process(conf: &Config, fs: &impl FileSystem, thread: &String, has_zip: bool) {
+pub fn batch_process(
+    conf: &Config,
+    fs: &impl FileSystem,
+    thread: &String,
+    has_zip: bool,
+    laz_files: &[PathBuf],
+    rx: Consumer<PathBuf>,
+) {
     let &Config {
         vegeonly,
         cliffsonly,
@@ -434,25 +492,14 @@ pub fn batch_process(conf: &Config, fs: &impl FileSystem, thread: &String, has_z
     let mut rng = rand::rng();
     let randdist = rand::distr::Bernoulli::new(thinfactor).unwrap();
 
-    fs.create_dir_all(batchoutfolder)
-        .expect("Could not create output folder");
-
-    let mut laz_files: Vec<PathBuf> = Vec::new();
-    for path in fs.list(lazfolder).unwrap() {
-        if let Some(extension) = path.extension() {
-            if extension == "laz" || extension == "las" {
-                laz_files.push(path);
-            }
-        }
-    }
-
     let options = las::ReaderOptions::default().with_laz_parallelism(if conf.laz_parallel {
         las::LazParallelism::Yes
     } else {
         las::LazParallelism::No
     });
 
-    for laz_path in &laz_files {
+    // take input files from queue until there are no more
+    while let Some(laz_path) = rx.pop() {
         let laz = laz_path.file_name().unwrap().to_str().unwrap();
         let outfile = format!("{batchoutfolder}/{laz}.png");
         if fs.exists(&outfile) {
@@ -486,7 +533,7 @@ pub fn batch_process(conf: &Config, fs: &impl FileSystem, thread: &String, has_z
             XyzInternalWriter::new(fs.create(&tmp_filename).expect("Could not create writer"));
 
         // read points from all LAZ files that have an overlap with the main tile file
-        for laz_p in &laz_files {
+        for laz_p in laz_files {
             let laz = laz_p.as_path().file_name().unwrap().to_str().unwrap();
             let mut file = fs.open(format!("{lazfolder}/{laz}")).unwrap();
             let header = Header::read_from(&mut file).unwrap();
