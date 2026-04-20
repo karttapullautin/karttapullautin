@@ -7,6 +7,8 @@ use std::error::Error;
 use std::io::BufRead;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::thread;
 
 use crate::blocks;
 use crate::cliffs;
@@ -27,6 +29,40 @@ use crate::vegetation;
 // compute the number of elements we can buffer for 50MB of memory usage during LAZ -> XyzRecord conversion
 const LAZ_BUFFER_SIZE: usize =
     50 * 1024 * 1024 / (size_of::<las::Point>() + size_of::<XyzRecord>());
+
+/// Launches threads and coordinates the logic for processing multiple files in parallell.
+/// When it returns, all files have been processed and output files have been generated according to
+/// the Config.
+pub fn launch_threads<F: FileSystem + Send + Clone + 'static>(
+    fs: F,
+    proc: u64,
+    config: &Arc<Config>,
+    zip_files: &[String],
+) {
+    let shapefiletmpdir = PathBuf::from("temp_shapefiles".to_string());
+    fs.create_dir_all(&shapefiletmpdir).unwrap();
+    if !zip_files.is_empty() {
+        crate::shapefile::unzip_shapefiles(&fs, zip_files).unwrap();
+    }
+    // do the processing
+    let mut handles: Vec<thread::JoinHandle<()>> = Vec::with_capacity((proc + 1) as usize);
+    for i in 0..proc {
+        let config = config.clone();
+        let fs = fs.clone();
+        let has_zip = !zip_files.is_empty();
+        let handle = thread::spawn(move || {
+            info!("Starting thread");
+            batch_process(&config, &fs, &format!("{}", i + 1), has_zip);
+            info!("Thread complete");
+        });
+        thread::sleep(std::time::Duration::from_millis(100));
+        handles.push(handle);
+    }
+    for handle in handles {
+        handle.join().unwrap();
+    }
+    fs.remove_dir_all(&shapefiletmpdir).unwrap();
+}
 
 pub fn process_zip(
     fs: &impl FileSystem,

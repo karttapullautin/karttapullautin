@@ -3,13 +3,11 @@ use log::info;
 use pullauta::config::Config;
 use pullauta::io::fs::FileSystem;
 use pullauta::io::fs::memory::MemoryFileSystem;
-use pullauta::shapefile;
 use std::env;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::{thread, time};
 fn main() {
     // setup and configure logging, default to INFO when RUST_LOG is not set
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
@@ -361,38 +359,6 @@ fn main() {
     }
     let proc = config.processes;
     if command.is_empty() && batch {
-        // inner function to reduce code duplication
-        fn launch_threads<F: FileSystem + Send + Clone + 'static>(
-            fs: F,
-            proc: u64,
-            config: &Arc<Config>,
-            zip_files: &[String],
-        ) {
-            let shapefiletmpdir = PathBuf::from("temp_shapefiles".to_string());
-            fs.create_dir_all(&shapefiletmpdir).unwrap();
-            if !zip_files.is_empty() {
-                crate::shapefile::unzip_shapefiles(&fs, zip_files).unwrap();
-            }
-            // do the processing
-            let mut handles: Vec<thread::JoinHandle<()>> = Vec::with_capacity((proc + 1) as usize);
-            for i in 0..proc {
-                let config = config.clone();
-                let fs = fs.clone();
-                let has_zip = !zip_files.is_empty();
-                let handle = thread::spawn(move || {
-                    info!("Starting thread");
-                    pullauta::process::batch_process(&config, &fs, &format!("{}", i + 1), has_zip);
-                    info!("Thread complete");
-                });
-                thread::sleep(time::Duration::from_millis(100));
-                handles.push(handle);
-            }
-            for handle in handles {
-                handle.join().unwrap();
-            }
-            fs.remove_dir_all(&shapefiletmpdir).unwrap();
-        }
-
         let Config { lazfolder, .. } = &*config;
 
         let mut zip_files: Vec<String> = Vec::new();
@@ -423,7 +389,7 @@ fn main() {
                 fs.load_from_disk(path, path).unwrap();
             }
 
-            launch_threads(fs.clone(), proc, &config, &zip_files);
+            pullauta::process::launch_threads(fs.clone(), proc, &config, &zip_files);
 
             // copy the output files back to disk
             std::fs::create_dir_all(&config.batchoutfolder).unwrap();
@@ -432,7 +398,7 @@ fn main() {
                 fs.save_to_disk(&path, &path).unwrap();
             }
         } else {
-            launch_threads(fs, proc, &config, &zip_files);
+            pullauta::process::launch_threads(fs, proc, &config, &zip_files);
         }
         return;
     }
@@ -469,7 +435,6 @@ fn main() {
                 &config,
                 &thread,
                 &tmpfolder,
-                // Path::new(&command),
                 Path::new("input.laz"),
                 norender,
             )
