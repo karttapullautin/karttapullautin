@@ -1,3 +1,4 @@
+use image::buffer::ConvertBuffer;
 use image::{DynamicImage, GrayImage, Luma, Rgb, RgbImage, Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_circle_mut, draw_filled_rect_mut, draw_line_segment_mut};
 use imageproc::filter::median_filter;
@@ -247,7 +248,9 @@ pub fn makevege(
 
     // render yellow as multiple small squares
     let ye2 = Rgba([255, 219, 166, 255]);
-    let mut imgye2 = RgbaImage::from_pixel(img_width, img_height, Rgba([255, 255, 255, 0]));
+    // let mut imgye2 = RgbaImage::from_pixel(img_width, img_height, Rgba([255, 255, 255, 0]));
+    let palette_ye = [(0, 0, 0), (ye2[0], ye2[1], ye2[2])];
+    let mut imgye2 = GrayImage::from_pixel(img_width, img_height, Luma([0]));
     for x in 0..(w_3 - 2) {
         for y in 0..(h_3 - 2) {
             let mut ghit2 = 0;
@@ -264,7 +267,7 @@ pub fn makevege(
                 draw_filled_rect_mut(
                     &mut imgye2,
                     Rect::at(x as i32 * 3 + 2, (h_3 as i32 - y as i32) * 3 - 3).of_size(3, 3),
-                    ye2,
+                    Luma::from([1]), // ye2,
                 );
             }
         }
@@ -383,6 +386,10 @@ pub fn makevege(
     } else if medyellow > 0 {
         imgye2 = median_filter(&imgye2, medyellow / 2, medyellow / 2);
     }
+
+    // convert to full image
+    let imgye2 = imgye2.expand_palette(&palette_ye, Some(0));
+
     imgye2
         .write_to(
             &mut fs
@@ -392,29 +399,37 @@ pub fn makevege(
         )
         .expect("could not save output png");
 
-    let writer = &mut fs
-        .create(tmpfolder.join("greens.png"))
-        .expect("error saving png");
-    let mut encoder = png::Encoder::new(writer, img_width, img_height);
-    encoder.set_color(png::ColorType::Indexed);
+    // let writer = &mut fs
+    //     .create(tmpfolder.join("greens.png"))
+    //     .expect("error saving png");
+    // let mut encoder = png::Encoder::new(writer, img_width, img_height);
+    // encoder.set_color(png::ColorType::Indexed);
+    //
+    // let mut palette = vec![255, 255, 255];
+    // palette.extend(greens.iter().flat_map(|c| c.0.iter().cloned()));
+    // encoder.set_palette(palette);
+    // encoder.set_depth(png::BitDepth::Eight);
+    //
+    // let mut w = encoder.write_header().expect("Failed to write PNG header");
+    // w.write_image_data(imggr1.as_raw())
+    //     .expect("Failed to write PNG data");
 
-    let mut palette = vec![255, 255, 255];
-    palette.extend(greens.iter().flat_map(|c| c.0.iter().cloned()));
-    encoder.set_palette(palette);
-    encoder.set_depth(png::BitDepth::Eight);
+    let mut palette = vec![(255, 255, 255)];
+    palette.extend(greens.iter().map(|c| (c[0], c[1], c[2])));
 
-    let mut w = encoder.write_header().expect("Failed to write PNG header");
-    w.write_image_data(imggr1.as_raw())
-        .expect("Failed to write PNG data");
+    let imggr1 = imggr1.expand_palette(&palette, None);
+    let imggr1: RgbImage = imggr1.convert();
 
-    // imggr1
-    //     .write_to(
-    //         ,
-    //         image::ImageFormat::Png,
-    //     )
-    //     .expect("could not save output png");
+    imggr1
+        .write_to(
+            &mut fs
+                .create(tmpfolder.join("greens.png"))
+                .expect("error saving png"),
+            image::ImageFormat::Png,
+        )
+        .expect("could not save output png");
 
-    let mut img = DynamicImage::ImageLuma8(imggr1);
+    let mut img = DynamicImage::ImageRgb8(imggr1);
     image::imageops::overlay(&mut img, &DynamicImage::ImageRgba8(imgye2), 0, 0);
 
     img.write_to(
