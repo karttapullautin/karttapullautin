@@ -297,7 +297,8 @@ pub fn makevege(
         aveg as f64 / avecount as f64
     };
 
-    let mut imggr1 = RgbImage::from_pixel(img_width, img_height, Rgb([255, 255, 255]));
+    // let mut imggr1 = RgbImage::from_pixel(img_width, img_height, Rgb([255, 255, 255]));
+    let mut imggr1 = GrayImage::from_pixel(img_width, img_height, Luma([0]));
     for x in 0..w_block {
         for y in 0..h_block {
             let roof = top[(x, y)]
@@ -353,7 +354,8 @@ pub fn makevege(
                             (block as i32 + addition) as u32,
                             (block as i32 + addition) as u32,
                         ),
-                        greens[greenshade - 1],
+                        Luma::from([greenshade as u8]),
+                        // greens[greenshade - 1],
                     );
                 }
             }
@@ -390,16 +392,29 @@ pub fn makevege(
         )
         .expect("could not save output png");
 
-    imggr1
-        .write_to(
-            &mut fs
-                .create(tmpfolder.join("greens.png"))
-                .expect("error saving png"),
-            image::ImageFormat::Png,
-        )
-        .expect("could not save output png");
+    let writer = &mut fs
+        .create(tmpfolder.join("greens.png"))
+        .expect("error saving png");
+    let mut encoder = png::Encoder::new(writer, img_width, img_height);
+    encoder.set_color(png::ColorType::Indexed);
 
-    let mut img = DynamicImage::ImageRgb8(imggr1);
+    let mut palette = vec![255, 255, 255];
+    palette.extend(greens.iter().flat_map(|c| c.0.iter().cloned()));
+    encoder.set_palette(palette);
+    encoder.set_depth(png::BitDepth::Eight);
+
+    let mut w = encoder.write_header().expect("Failed to write PNG header");
+    w.write_image_data(imggr1.as_raw())
+        .expect("Failed to write PNG data");
+
+    // imggr1
+    //     .write_to(
+    //         ,
+    //         image::ImageFormat::Png,
+    //     )
+    //     .expect("could not save output png");
+
+    let mut img = DynamicImage::ImageLuma8(imggr1);
     image::imageops::overlay(&mut img, &DynamicImage::ImageRgba8(imgye2), 0, 0);
 
     img.write_to(
