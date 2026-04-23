@@ -365,20 +365,20 @@ pub fn makevege(
     let med2 = config.med2;
     let medyellow = config.medyellow;
 
-    if med > 0 {
+    if med > 1 {
         imggr1 = median_filter(&imggr1, med / 2, med / 2);
     }
-    if med2 > 0 {
+    if med2 > 1 {
         imggr1 = median_filter(&imggr1, med2 / 2, med2 / 2);
     }
     if proceed_yellows {
-        if med > 0 {
+        if med > 1 {
             imgye2 = median_filter(&imgye2, med / 2, med / 2);
         }
-        if med2 > 0 {
+        if med2 > 1 {
             imgye2 = median_filter(&imgye2, med2 / 2, med2 / 2);
         }
-    } else if medyellow > 0 {
+    } else if medyellow > 1 {
         imgye2 = median_filter(&imgye2, medyellow / 2, medyellow / 2);
     }
     imgye2
