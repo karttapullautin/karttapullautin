@@ -74,7 +74,7 @@ jobs:
 
     - name: Upload results
       id: upload
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: regression-results
         path: |
@@ -196,7 +196,7 @@ jobs:
 
     - name: Upload results
       id: upload
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: regression-results-batch
         path: |
