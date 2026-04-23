@@ -248,7 +248,6 @@ pub fn makevege(
 
     // render yellow as multiple small squares
     let ye2 = Rgba([255, 219, 166, 255]);
-    // let mut imgye2 = RgbaImage::from_pixel(img_width, img_height, Rgba([255, 255, 255, 0]));
     let palette_ye = [(0, 0, 0), (ye2[0], ye2[1], ye2[2])];
     let mut imgye2 = GrayImage::from_pixel(img_width, img_height, Luma([0]));
     for x in 0..(w_3 - 2) {
@@ -267,7 +266,7 @@ pub fn makevege(
                 draw_filled_rect_mut(
                     &mut imgye2,
                     Rect::at(x as i32 * 3 + 2, (h_3 as i32 - y as i32) * 3 - 3).of_size(3, 3),
-                    Luma::from([1]), // ye2,
+                    Luma::from([1]),
                 );
             }
         }
@@ -300,7 +299,6 @@ pub fn makevege(
         aveg as f64 / avecount as f64
     };
 
-    // let mut imggr1 = RgbImage::from_pixel(img_width, img_height, Rgb([255, 255, 255]));
     let mut imggr1 = GrayImage::from_pixel(img_width, img_height, Luma([0]));
     for x in 0..w_block {
         for y in 0..h_block {
@@ -358,7 +356,6 @@ pub fn makevege(
                             (block as i32 + addition) as u32,
                         ),
                         Luma::from([greenshade as u8]),
-                        // greens[greenshade - 1],
                     );
                 }
             }
@@ -398,21 +395,6 @@ pub fn makevege(
             image::ImageFormat::Png,
         )
         .expect("could not save output png");
-
-    // let writer = &mut fs
-    //     .create(tmpfolder.join("greens.png"))
-    //     .expect("error saving png");
-    // let mut encoder = png::Encoder::new(writer, img_width, img_height);
-    // encoder.set_color(png::ColorType::Indexed);
-    //
-    // let mut palette = vec![255, 255, 255];
-    // palette.extend(greens.iter().flat_map(|c| c.0.iter().cloned()));
-    // encoder.set_palette(palette);
-    // encoder.set_depth(png::BitDepth::Eight);
-    //
-    // let mut w = encoder.write_header().expect("Failed to write PNG header");
-    // w.write_image_data(imggr1.as_raw())
-    //     .expect("Failed to write PNG data");
 
     let mut palette = vec![(255, 255, 255)];
     palette.extend(greens.iter().map(|c| (c[0], c[1], c[2])));

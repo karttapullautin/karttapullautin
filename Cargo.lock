@@ -1346,7 +1346,6 @@ dependencies = [
  "imageproc",
  "las",
  "log",
- "png",
  "rand 0.10.1",
  "rust-ini",
  "rustc-hash",
