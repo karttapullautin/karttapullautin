@@ -140,6 +140,7 @@ jobs:
         cp test_file.shp.zip in/test_file.shp.zip
         sed -i 's/batch=0/batch=1/g' pullauta.ini
         sed -i 's/output_dxf=0/output_dxf=1/g' pullauta.ini
+        sed -i 's/^vectorconf=/vectorconf=osm.txt/g' pullauta.ini
 
         # run and store results
         env time -o time_pr.txt target/x86_64-unknown-linux-gnu/release/pullauta
