@@ -124,7 +124,9 @@ jobs:
     - uses: Swatinem/rust-cache@v2
 
     - name: Download LAZ file
-      run: curl -L "https://cdn.routechoic.es/test.laz" -o test_file.laz
+      run: |
+        curl -Lf "https://cdn.routechoic.es/test.laz" -o test_file.laz
+        curl -Lf "https://cdn.routechoic.es/test-osm.shp.zip" -o test_file.shp.zip
 
     - name: Run code on PR branch
       id: run_pr_branch
@@ -135,8 +137,10 @@ jobs:
         cp pullauta.default.ini pullauta.ini
         mkdir in && mkdir out
         cp test_file.laz in/test_file.laz
+        cp test_file.shp.zip in/test_file.shp.zip
         sed -i 's/batch=0/batch=1/g' pullauta.ini
         sed -i 's/output_dxf=0/output_dxf=1/g' pullauta.ini
+        sed -i 's/^vectorconf=/vectorconf=osm.txt/g' pullauta.ini
 
         # run and store results
         env time -o time_pr.txt target/x86_64-unknown-linux-gnu/release/pullauta
@@ -158,6 +162,7 @@ jobs:
         # prepare
         mkdir in && mkdir out
         cp ../test_file.laz in/test_file.laz
+        cp ../test_file.shp.zip in/test_file.shp.zip
         # since the default config does not come bundled, we will copy the existing one for now
         # (not ideal if we want to test out-of-the-box behavior but it is better than nothing)
         cp ../pullauta.ini pullauta.ini
