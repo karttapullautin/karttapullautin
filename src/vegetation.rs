@@ -1,3 +1,4 @@
+use image::buffer::ConvertBuffer;
 use image::{DynamicImage, GrayImage, Luma, Rgb, RgbImage, Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_circle_mut, draw_filled_rect_mut, draw_line_segment_mut};
 use imageproc::filter::median_filter;
@@ -247,7 +248,8 @@ pub fn makevege(
 
     // render yellow as multiple small squares
     let ye2 = Rgba([255, 219, 166, 255]);
-    let mut imgye2 = RgbaImage::from_pixel(img_width, img_height, Rgba([255, 255, 255, 0]));
+    let palette_ye = [(0, 0, 0), (ye2[0], ye2[1], ye2[2])];
+    let mut imgye2 = GrayImage::from_pixel(img_width, img_height, Luma([0]));
     for x in 0..(w_3 - 2) {
         for y in 0..(h_3 - 2) {
             let mut ghit2 = 0;
@@ -264,7 +266,7 @@ pub fn makevege(
                 draw_filled_rect_mut(
                     &mut imgye2,
                     Rect::at(x as i32 * 3 + 2, (h_3 as i32 - y as i32) * 3 - 3).of_size(3, 3),
-                    ye2,
+                    Luma::from([1]),
                 );
             }
         }
@@ -297,7 +299,7 @@ pub fn makevege(
         aveg as f64 / avecount as f64
     };
 
-    let mut imggr1 = RgbImage::from_pixel(img_width, img_height, Rgb([255, 255, 255]));
+    let mut imggr1 = GrayImage::from_pixel(img_width, img_height, Luma([0]));
     for x in 0..w_block {
         for y in 0..h_block {
             let roof = top[(x, y)]
@@ -353,7 +355,7 @@ pub fn makevege(
                             (block as i32 + addition) as u32,
                             (block as i32 + addition) as u32,
                         ),
-                        greens[greenshade - 1],
+                        Luma::from([greenshade as u8]),
                     );
                 }
             }
@@ -381,6 +383,10 @@ pub fn makevege(
     } else if medyellow > 1 {
         imgye2 = median_filter(&imgye2, medyellow / 2, medyellow / 2);
     }
+
+    // convert to full image
+    let imgye2 = imgye2.expand_palette(&palette_ye, Some(0));
+
     imgye2
         .write_to(
             &mut fs
@@ -389,6 +395,12 @@ pub fn makevege(
             image::ImageFormat::Png,
         )
         .expect("could not save output png");
+
+    let mut palette = vec![(255, 255, 255)];
+    palette.extend(greens.iter().map(|c| (c[0], c[1], c[2])));
+
+    let imggr1 = imggr1.expand_palette(&palette, None);
+    let imggr1: RgbImage = imggr1.convert();
 
     imggr1
         .write_to(
