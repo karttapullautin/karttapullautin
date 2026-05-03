@@ -1,4 +1,3 @@
-use image::buffer::ConvertBuffer;
 use image::{DynamicImage, GrayImage, Luma, Rgb, RgbImage, Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_circle_mut, draw_filled_rect_mut, draw_line_segment_mut};
 use imageproc::filter::median_filter;
@@ -248,7 +247,7 @@ pub fn makevege(
 
     // render yellow as multiple small squares
     let ye2 = Rgba([255, 219, 166, 255]);
-    let palette_ye = [(0, 0, 0), (ye2[0], ye2[1], ye2[2])];
+    let palette_ye = [Rgba([0, 0, 0, 0]), ye2];
     let mut imgye2 = GrayImage::from_pixel(img_width, img_height, Luma([0]));
     for x in 0..(w_3 - 2) {
         for y in 0..(h_3 - 2) {
@@ -385,7 +384,7 @@ pub fn makevege(
     }
 
     // convert to full image
-    let imgye2 = imgye2.expand_palette(&palette_ye, Some(0));
+    let imgye2 = crate::util::expand_palette(imgye2, &palette_ye);
 
     imgye2
         .write_to(
@@ -396,11 +395,10 @@ pub fn makevege(
         )
         .expect("could not save output png");
 
-    let mut palette = vec![(255, 255, 255)];
-    palette.extend(greens.iter().map(|c| (c[0], c[1], c[2])));
+    let mut palette = vec![Rgb([255, 255, 255])];
+    palette.extend(greens.iter());
 
-    let imggr1 = imggr1.expand_palette(&palette, None);
-    let imggr1: RgbImage = imggr1.convert();
+    let imggr1 = crate::util::expand_palette(imggr1, &palette);
 
     imggr1
         .write_to(
