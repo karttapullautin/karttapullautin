@@ -152,3 +152,41 @@ pub fn write_object<W: std::io::Write, O: serde::Serialize>(
     .context("serializing to file")?;
     Ok(())
 }
+
+/// Expands a grayscale / indexed image using a palette into an image with the same dimensions.
+/// This allocates a new buffer to hold the expanded image.
+pub fn expand_palette<P: image::Pixel>(
+    img: image::GrayImage,
+    palette: &[P],
+) -> image::ImageBuffer<P, Vec<P::Subpixel>> {
+    let mut expanded = image::ImageBuffer::new(img.width(), img.height());
+
+    for (idx, pixel) in img.pixels().zip(expanded.pixels_mut()) {
+        let idx = idx.0[0];
+        *pixel = palette[idx as usize];
+    }
+
+    expanded
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_expand_palette() {
+        let img = image::GrayImage::from_raw(2, 2, vec![0, 1, 2, 3]).unwrap();
+        let palette = [
+            image::Rgb([255, 0, 0]),
+            image::Rgb([0, 255, 0]),
+            image::Rgb([0, 0, 255]),
+            image::Rgb([255, 255, 0]),
+        ];
+
+        let expanded = expand_palette(img, &palette);
+        assert_eq!(expanded.get_pixel(0, 0), &image::Rgb([255, 0, 0]));
+        assert_eq!(expanded.get_pixel(1, 0), &image::Rgb([0, 255, 0]));
+        assert_eq!(expanded.get_pixel(0, 1), &image::Rgb([0, 0, 255]));
+        assert_eq!(expanded.get_pixel(1, 1), &image::Rgb([255, 255, 0]));
+    }
+}

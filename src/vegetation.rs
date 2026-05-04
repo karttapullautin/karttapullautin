@@ -247,7 +247,8 @@ pub fn makevege(
 
     // render yellow as multiple small squares
     let ye2 = Rgba([255, 219, 166, 255]);
-    let mut imgye2 = RgbaImage::from_pixel(img_width, img_height, Rgba([255, 255, 255, 0]));
+    let palette_ye = [Rgba([0, 0, 0, 0]), ye2];
+    let mut imgye2 = GrayImage::from_pixel(img_width, img_height, Luma([0]));
     for x in 0..(w_3 - 2) {
         for y in 0..(h_3 - 2) {
             let mut ghit2 = 0;
@@ -264,7 +265,7 @@ pub fn makevege(
                 draw_filled_rect_mut(
                     &mut imgye2,
                     Rect::at(x as i32 * 3 + 2, (h_3 as i32 - y as i32) * 3 - 3).of_size(3, 3),
-                    ye2,
+                    Luma::from([1]),
                 );
             }
         }
@@ -297,7 +298,7 @@ pub fn makevege(
         aveg as f64 / avecount as f64
     };
 
-    let mut imggr1 = RgbImage::from_pixel(img_width, img_height, Rgb([255, 255, 255]));
+    let mut imggr1 = GrayImage::from_pixel(img_width, img_height, Luma([0]));
     for x in 0..w_block {
         for y in 0..h_block {
             let roof = top[(x, y)]
@@ -353,7 +354,7 @@ pub fn makevege(
                             (block as i32 + addition) as u32,
                             (block as i32 + addition) as u32,
                         ),
-                        greens[greenshade - 1],
+                        Luma::from([greenshade as u8]),
                     );
                 }
             }
@@ -381,6 +382,10 @@ pub fn makevege(
     } else if medyellow > 1 {
         imgye2 = median_filter(&imgye2, medyellow / 2, medyellow / 2);
     }
+
+    // convert to full image
+    let imgye2 = crate::util::expand_palette(imgye2, &palette_ye);
+
     imgye2
         .write_to(
             &mut fs
@@ -389,6 +394,11 @@ pub fn makevege(
             image::ImageFormat::Png,
         )
         .expect("could not save output png");
+
+    let mut palette = vec![Rgb([255, 255, 255])];
+    palette.extend(greens.iter());
+
+    let imggr1 = crate::util::expand_palette(imggr1, &palette);
 
     imggr1
         .write_to(
