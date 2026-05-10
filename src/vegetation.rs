@@ -1,4 +1,4 @@
-use image::{DynamicImage, GrayAlphaImage, GrayImage, Luma, LumaA, Rgba};
+use image::{DynamicImage, GrayAlphaImage, GrayImage, Luma, LumaA};
 use imageproc::drawing::{draw_filled_circle_mut, draw_filled_rect_mut, draw_line_segment_mut};
 use imageproc::filter::median_filter;
 use imageproc::rect::Rect;
@@ -290,12 +290,6 @@ pub fn makevege(
         aveg as f64 / avecount as f64
     };
 
-    // let mut imggr1 = GrayImage::from_pixel(img_width, img_height, Luma([0]));
-    // let mut imggr1 = ImageBuffer::<PaletteColor, Vec<u8>>::from_pixel(
-    //     img_width,
-    //     img_height,
-    //     PaletteColorEnum::Transparent.to_color(),
-    // );
     let mut imggr1 = OurImage::new(
         img_width,
         img_height,
@@ -363,6 +357,9 @@ pub fn makevege(
             }
         }
     }
+
+    // drop all used resources to free memory early
+    drop((top, firsthit, ghit, greenhit, highit, yhit, noyhit));
 
     let proceed_yellows: bool = config.proceed_yellows;
     let med: u32 = config.med;
