@@ -1,17 +1,15 @@
-use anyhow::Context;
 use image::{Luma, Rgba};
 
 use crate::config::Config;
 
 /// Our own wrapper around and image buffer that automatically handles drawing with a palette.
 #[derive(Clone)]
-pub struct OurImage {
+pub struct PalettedImage {
     /// the inner paletted image
     image: image::ImageBuffer<PaletteColor, Vec<u8>>,
-    // TODO: reference the palette here? Arc?
 }
 
-impl imageproc::drawing::Canvas for OurImage {
+impl imageproc::drawing::Canvas for PalettedImage {
     type Pixel = PaletteColor;
 
     fn dimensions(&self) -> (u32, u32) {
@@ -34,7 +32,7 @@ impl imageproc::drawing::Canvas for OurImage {
     }
 }
 
-impl OurImage {
+impl PalettedImage {
     pub fn new(width: u32, height: u32, fill: PaletteColor) -> Self {
         let mut image = image::ImageBuffer::new(width, height);
 
@@ -65,11 +63,6 @@ impl OurImage {
 
     pub fn pixels(&self) -> impl Iterator<Item = &PaletteColor> {
         self.image.pixels()
-    }
-
-    /// Convert this image to an RGBA image using the given palette.
-    pub fn to_rgba(&self, palette: &Palette) -> image::RgbaImage {
-        crate::util::expand_palette_index(&self.image, &palette.colors)
     }
 
     /// Overlay other ontop of this image, blending the colors (taking top color if not transparent)
@@ -103,15 +96,6 @@ impl OurImage {
         w.write_image_data(self.image.as_raw())
             .expect("Failed to write PNG data");
         Ok(())
-    }
-
-    pub fn write_to_rgb<W>(&self, writer: &mut W, palette: &Palette) -> anyhow::Result<()>
-    where
-        W: std::io::Write + std::io::Seek,
-    {
-        self.to_rgba(palette)
-            .write_to(writer, image::ImageFormat::Png)
-            .context("writing image")
     }
 }
 
@@ -162,14 +146,8 @@ impl Palette {
                     (greentone - greentone / (num_greenshades - 1) as f64 * i as f64) as u8,
                     255,
                 ]);
-                // index starts at 2 for the first green tone apparently
-                let bit_value = i as u8 + 2;
-                palette[PaletteColorEnum::GreenShadeBit(i as u8)] =
-                    Rgba([bit_value, bit_value, bit_value, 255]);
             }
         }
-
-        // palette[PaletteColorEnum::GreenShadeBitNotFound] = Rgba([0, 0, 0, 255]);
 
         palette[PaletteColorEnum::BackgroundWhite] = Rgba([255, 255, 255, 255]);
         palette[PaletteColorEnum::Black] = Rgba([0, 0, 0, 255]);
@@ -193,10 +171,6 @@ pub enum PaletteColorEnum {
     /// A shade of green used for vegetation. Number of shades are configured by the config. Maximum
     /// 16 shades, so we have to reserve 16 colors for this.
     GreenShade(u8),
-    /// Used to output bit images of the green shades, where the value is directly translated into
-    /// [value, value, value, 255] in the palette, where value is between 0 and 15.
-    GreenShadeBit(u8),
-    // GreenShadeBitNotFound,
 }
 
 impl PaletteColorEnum {
@@ -213,10 +187,6 @@ impl PaletteColorEnum {
                 assert!(*shade < 16, "Green shade must be between 0 and 15");
                 PaletteColor(Luma([16 + *shade]))
             }
-            Self::GreenShadeBit(shade) => {
-                assert!(*shade < 16, "Green shade bit must be between 0 and 15");
-                PaletteColor(Luma([32 + *shade]))
-            }
         }
     }
 }
@@ -224,7 +194,7 @@ impl PaletteColorEnum {
 /// The index of a color in the palette. The palette contains up to 256 colors, so this is a single byte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
-pub struct PaletteColor(pub image::Luma<u8>);
+pub struct PaletteColor(image::Luma<u8>);
 
 #[allow(unused_variables)]
 impl image::Pixel for PaletteColor {

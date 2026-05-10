@@ -13,7 +13,7 @@ use crate::io::bytes::FromToBytes;
 use crate::io::fs::FileSystem;
 use crate::io::heightmap::HeightMap;
 use crate::io::xyz::XyzInternalReader;
-use crate::palette::{OurImage, Palette, PaletteColorEnum};
+use crate::palette::{Palette, PaletteColorEnum, PalettedImage};
 use crate::vec2d::Vec2D;
 
 pub fn makevege(
@@ -248,7 +248,7 @@ pub fn makevege(
     let img_height = (h_block as f64 * block) as u32;
 
     // render yellow as multiple small squares
-    let mut imgye2 = OurImage::new(
+    let mut imgye2 = PalettedImage::new(
         img_width,
         img_height,
         PaletteColorEnum::BackgroundWhite.to_color(),
@@ -290,7 +290,7 @@ pub fn makevege(
         aveg as f64 / avecount as f64
     };
 
-    let mut imggr1 = OurImage::new(
+    let mut imggr1 = PalettedImage::new(
         img_width,
         img_height,
         PaletteColorEnum::BackgroundWhite.to_color(),
@@ -478,7 +478,7 @@ pub fn makevege(
     drop(imggr1);
     drop(imgye2);
 
-    let mut imgwater = OurImage::new(
+    let mut imgwater = PalettedImage::new(
         img_width,
         img_height,
         PaletteColorEnum::BackgroundWhite.to_color(),
@@ -542,7 +542,7 @@ pub fn makevege(
     let hh = hf32 * bf32;
     let mut x = 0.0_f32;
 
-    let mut imgug = OurImage::new(
+    let mut imgug = PalettedImage::new(
         (w_block as f64 * block * 600.0 / 254.0 / scalefactor) as u32,
         (h_block as f64 * block * 600.0 / 254.0 / scalefactor) as u32,
         PaletteColorEnum::Transparent.to_color(),
