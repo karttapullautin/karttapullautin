@@ -1,4 +1,4 @@
-use image::{DynamicImage, GrayImage, Luma, Rgb, RgbImage, Rgba, RgbaImage};
+use image::{DynamicImage, GrayImage, Luma, Rgb, Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_circle_mut, draw_filled_rect_mut, draw_line_segment_mut};
 use imageproc::filter::median_filter;
 use imageproc::rect::Rect;
@@ -428,7 +428,6 @@ pub fn makevege(
                 .create(tmpfolder.join("vegetation.png"))
                 .expect("error saving png"),
             &palette,
-            // image::ImageFormat::Png,
         )
         .expect("could not save output png");
 
@@ -455,6 +454,7 @@ pub fn makevege(
         for pixel in g_img.pixels_mut() {
             let mut found = false;
             for (idx, color) in greens.iter().enumerate() {
+                // index starts at 2 for the first green tone
                 let c = idx as u8 + 2;
                 if pixel[0] == color[0] && pixel[1] == color[1] && pixel[2] == color[2] {
                     *pixel = Rgb([c, c, c]);
@@ -513,9 +513,11 @@ pub fn makevege(
             .expect("could not save output png");
     }
 
-    let mut imgwater = RgbImage::from_pixel(img_width, img_height, Rgb([255, 255, 255]));
-    let black = Rgb([0, 0, 0]);
-    let blue = Rgb([29, 190, 255]);
+    let mut imgwater = OurImage::new(
+        img_width,
+        img_height,
+        PaletteColorEnum::BackgroundWhite.to_color(),
+    );
     let buildings = config.buildings;
     let water = config.water;
     if buildings > 0 || water > 0 {
@@ -529,14 +531,14 @@ pub fn makevege(
                     draw_filled_rect_mut(
                         &mut imgwater,
                         Rect::at((x - xmin) as i32 - 1, (ymax - y) as i32 - 1).of_size(3, 3),
-                        black,
+                        PaletteColorEnum::Black.to_color(),
                     );
                 }
                 if c == water {
                     draw_filled_rect_mut(
                         &mut imgwater,
                         Rect::at((x - xmin) as i32 - 1, (ymax - y) as i32 - 1).of_size(3, 3),
-                        blue,
+                        PaletteColorEnum::Blue.to_color(),
                     );
                 }
             }
@@ -548,7 +550,7 @@ pub fn makevege(
             draw_filled_rect_mut(
                 &mut imgwater,
                 Rect::at((x - xmin) as i32 - 1, (ymax - y) as i32 - 1).of_size(3, 3),
-                blue,
+                PaletteColorEnum::Blue.to_color(),
             );
         }
     }
@@ -558,7 +560,7 @@ pub fn makevege(
             &mut fs
                 .create(tmpfolder.join("blueblack.png"))
                 .expect("error saving png"),
-            image::ImageFormat::Png,
+            &palette,
         )
         .expect("could not save output png");
 
