@@ -1,4 +1,4 @@
-use image::{DynamicImage, GrayImage, Luma, Rgba};
+use image::{DynamicImage, GrayAlphaImage, GrayImage, Luma, LumaA, Rgba};
 use imageproc::drawing::{draw_filled_circle_mut, draw_filled_rect_mut, draw_line_segment_mut};
 use imageproc::filter::median_filter;
 use imageproc::rect::Rect;
@@ -248,7 +248,6 @@ pub fn makevege(
     let img_height = (h_block as f64 * block) as u32;
 
     // render yellow as multiple small squares
-    let ye2 = Rgba([255, 219, 166, 255]);
     let mut imgye2 = OurImage::new(
         img_width,
         img_height,
@@ -434,19 +433,13 @@ pub fn makevege(
             )
             .expect("could not save output png");
 
-        let y_img = fs
-            .read_image_png(tmpfolder.join("yellow.png"))
-            .expect("Opening image failed");
-        let mut y_img = y_img.to_rgba8();
-        for pixel in y_img.pixels_mut() {
-            if pixel[0] == ye2[0] && pixel[1] == ye2[1] && pixel[2] == ye2[2] && pixel[3] == ye2[3]
-            {
-                *pixel = Rgba([1, 1, 1, 255]);
-            } else {
-                *pixel = Rgba([0, 0, 0, 0]);
+        let mut y_img = GrayAlphaImage::new(imgye2.width(), imgye2.height());
+
+        for (pixel, out) in imgye2.pixels().zip(y_img.pixels_mut()) {
+            if *pixel == PaletteColorEnum::Yellow2.to_color() {
+                *out = LumaA([1, 255]);
             }
         }
-        let y_img = DynamicImage::ImageRgba8(y_img).to_luma_alpha8();
 
         y_img
             .write_to(
@@ -457,6 +450,7 @@ pub fn makevege(
             )
             .expect("could not save output png");
 
+        // overlay the two bit images (yellow on top of green) and save as vegetation bit image
         let mut img_bit = DynamicImage::ImageLuma8(g_img);
         let img_bit2 = DynamicImage::ImageLumaA8(y_img);
         image::imageops::overlay(&mut img_bit, &img_bit2, 0, 0);
