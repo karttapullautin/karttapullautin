@@ -18,6 +18,24 @@ use crate::{
 use shapefile::dbase::{FieldValue, Record};
 use shapefile::{Polygon, Polyline, Shape, ShapeType};
 
+#[derive(PartialEq, Eq)]
+enum EdgeImage {
+    Black,
+    BlackTop,
+}
+
+#[derive(PartialEq, Eq)]
+enum Image {
+    Black,
+    BlackTop,
+    Blue,
+    Brown,
+    Marsh,
+    Olive,
+    Parkings,
+    Yellow,
+}
+
 pub fn render(
     fs: &impl FileSystem,
     config: &Config,
@@ -161,8 +179,8 @@ pub fn render(
 
             let mut area = false;
             let mut roadedge = 0.0;
-            let mut edgeimage = "black";
-            let mut image = "";
+            let mut edgeimage = EdgeImage::Black;
+            let mut image = None;
             let mut thickness = 1.0;
             let mut color: Option<(u8, u8, u8)> = None;
             let mut dashedline = false;
@@ -187,27 +205,27 @@ pub fn render(
                 if ["36311", "36312"].contains(&luokka.as_str()) {
                     thickness = 4.0;
                     color = Some(marsh);
-                    image = "blue";
+                    image = Some(Image::Blue);
                 }
 
                 // pathes
                 if luokka == "12316" && versuh != -11.0 {
                     thickness = 12.0;
                     dashedline = true;
-                    image = "black";
+                    image = Some(Image::Black);
                     color = Some(black);
                     if versuh > 0.0 {
-                        image = "blacktop";
+                        image = Some(Image::BlackTop);
                     }
                 }
 
                 // large pathes
                 if (luokka == "12141" || luokka == "12314") && versuh != -11.0 {
                     thickness = 12.0;
-                    image = "black";
+                    image = Some(Image::Black);
                     color = Some(black);
                     if versuh > 0.0 {
-                        image = "blacktop";
+                        image = Some(Image::BlackTop);
                     }
                 }
 
@@ -219,11 +237,11 @@ pub fn render(
                     imgbrowntop.set_line_width(20.0);
                     thickness = 20.0;
                     color = Some(brown);
-                    image = "brown";
+                    image = Some(Image::Brown);
                     roadedge = 26.0;
                     imgblack.set_line_width(26.0);
                     if versuh > 0.0 {
-                        edgeimage = "blacktop";
+                        edgeimage = EdgeImage::BlackTop;
                         imgbrown.set_line_width(14.0);
                         imgbrowntop.set_line_width(14.0);
                         thickness = 14.0;
@@ -234,33 +252,33 @@ pub fn render(
                 if ["14110", "14111", "14112", "14121", "14131"].contains(&luokka.as_str())
                     && versuh != -11.0
                 {
-                    image = "black";
+                    image = Some(Image::Black);
                     color = Some(white);
                     thickness = 3.0;
                     roadedge = 18.0;
                     if versuh > 0.0 {
-                        image = "blacktop";
-                        edgeimage = "blacktop";
+                        image = Some(Image::BlackTop);
+                        edgeimage = EdgeImage::BlackTop;
                     }
                 }
 
                 if luokka == "12312" && versuh != -11.0 {
                     dashedline = true;
                     thickness = 6.0;
-                    image = "black";
+                    image = Some(Image::Black);
                     color = Some(black);
                     if versuh > 0.0 {
-                        image = "blacktop";
+                        image = Some(Image::BlackTop);
                     }
                 }
 
                 if luokka == "12313" && versuh != -11.0 {
                     dashedline = true;
                     thickness = 5.0;
-                    image = "black";
+                    image = Some(Image::Black);
                     color = Some(black);
                     if versuh > 0.0 {
-                        image = "blacktop";
+                        image = Some(Image::BlackTop);
                     }
                 }
 
@@ -269,7 +287,7 @@ pub fn render(
                     imgblacktop.set_line_width(5.0);
                     thickness = 5.0;
                     color = Some(black);
-                    image = "blacktop";
+                    image = Some(Image::BlackTop);
                 }
 
                 // fence
@@ -277,7 +295,7 @@ pub fn render(
                     imgblacktop.set_line_width(7.0);
                     thickness = 7.0;
                     color = Some(black);
-                    image = "blacktop";
+                    image = Some(Image::BlackTop);
                 }
 
                 // Next are polygons
@@ -287,7 +305,7 @@ pub fn render(
                     area = true;
                     color = Some(yellow);
                     border = 3.0;
-                    image = "yellow";
+                    image = Some(Image::Yellow);
                 }
 
                 // lake
@@ -299,7 +317,7 @@ pub fn render(
                     area = true;
                     color = Some(blue);
                     border = 5.0;
-                    image = "blue";
+                    image = Some(Image::Blue);
                 }
 
                 // impassable marsh
@@ -307,7 +325,7 @@ pub fn render(
                     area = true;
                     color = Some(marsh);
                     border = 3.0;
-                    image = "marsh";
+                    image = Some(Image::Marsh);
                 }
 
                 // regular marsh
@@ -315,7 +333,7 @@ pub fn render(
                     area = true;
                     color = Some(marsh);
                     border = 0.0;
-                    image = "marsh";
+                    image = Some(Image::Marsh);
                 }
 
                 // marshy
@@ -323,7 +341,7 @@ pub fn render(
                     area = true;
                     color = Some(marsh);
                     border = 0.0;
-                    image = "marsh";
+                    image = Some(Image::Marsh);
                 }
 
                 // marshy
@@ -337,7 +355,7 @@ pub fn render(
                     area = true;
                     color = Some(purple);
                     border = 0.0;
-                    image = "black";
+                    image = Some(Image::Black);
                 }
 
                 // settlement
@@ -350,7 +368,7 @@ pub fn render(
                     area = true;
                     color = Some(olive);
                     border = 0.0;
-                    image = "olive";
+                    image = Some(Image::Olive);
                 }
 
                 // airport runway, car parkings
@@ -358,7 +376,7 @@ pub fn render(
                     area = true;
                     color = Some(brown);
                     border = 0.0;
-                    image = "parkings";
+                    image = Some(Image::Parkings);
                 }
 
                 if mtkskip.contains(&luokka) {
@@ -401,7 +419,7 @@ pub fn render(
                         imgblue.set_line_width(5.0);
                         thickness = 4.0;
                         color = Some(marsh);
-                        image = "blue";
+                        image = Some(Image::Blue);
                     }
 
                     // small path
@@ -409,7 +427,7 @@ pub fn render(
                         dashedline = true;
                         thickness = 12.0;
                         color = Some(black);
-                        image = "black";
+                        image = Some(Image::Black);
                     }
 
                     // small path top
@@ -417,7 +435,7 @@ pub fn render(
                         dashedline = true;
                         thickness = 12.0;
                         color = Some(black);
-                        image = "blacktop";
+                        image = Some(Image::BlackTop);
                     }
 
                     // large path
@@ -425,7 +443,7 @@ pub fn render(
                         imgblack.set_line_width(12.0);
                         thickness = 12.0;
                         color = Some(black);
-                        image = "black";
+                        image = Some(Image::Black);
                     }
 
                     // large path top
@@ -433,7 +451,7 @@ pub fn render(
                         imgblack.set_line_width(12.0);
                         thickness = 12.0;
                         color = Some(black);
-                        image = "blacktop";
+                        image = Some(Image::BlackTop);
                     }
 
                     // road
@@ -441,7 +459,7 @@ pub fn render(
                         imgbrown.set_line_width(20.0);
                         imgbrowntop.set_line_width(20.0);
                         color = Some(brown);
-                        image = "brown";
+                        image = Some(Image::Brown);
                         roadedge = 26.0;
                         thickness = 20.0;
                         imgblack.set_line_width(26.0);
@@ -449,11 +467,11 @@ pub fn render(
 
                     // road, bridges
                     if isom == "503T" {
-                        edgeimage = "blacktop";
+                        edgeimage = EdgeImage::BlackTop;
                         imgbrown.set_line_width(14.0);
                         imgbrowntop.set_line_width(14.0);
                         color = Some(brown);
-                        image = "brown";
+                        image = Some(Image::Brown);
                         roadedge = 26.0;
                         thickness = 14.0;
                         imgblack.set_line_width(26.0);
@@ -462,7 +480,7 @@ pub fn render(
                     // railroads
                     if isom == "515" {
                         color = Some(white);
-                        image = "black";
+                        image = Some(Image::Black);
                         roadedge = 18.0;
                         thickness = 3.0;
                     }
@@ -470,8 +488,8 @@ pub fn render(
                     // railroads top
                     if isom == "515T" {
                         color = Some(white);
-                        image = "blacktop";
-                        edgeimage = "blacktop";
+                        image = Some(Image::BlackTop);
+                        edgeimage = EdgeImage::BlackTop;
                         roadedge = 18.0;
                         thickness = 3.0;
                     }
@@ -480,7 +498,7 @@ pub fn render(
                     if isom == "507" {
                         dashedline = true;
                         color = Some(black);
-                        image = "black";
+                        image = Some(Image::Black);
                         thickness = 6.0;
                         imgblack.set_line_width(6.0);
                     }
@@ -489,7 +507,7 @@ pub fn render(
                     if isom == "507T" {
                         dashedline = true;
                         color = Some(black);
-                        image = "blacktop";
+                        image = Some(Image::BlackTop);
                         thickness = 6.0;
                         imgblack.set_line_width(6.0);
                     }
@@ -497,7 +515,7 @@ pub fn render(
                     // powerline
                     if isom == "516" {
                         color = Some(black);
-                        image = "blacktop";
+                        image = Some(Image::BlackTop);
                         thickness = 5.0;
                         imgblacktop.set_line_width(5.0);
                     }
@@ -505,7 +523,7 @@ pub fn render(
                     // fence
                     if isom == "524" {
                         color = Some(black);
-                        image = "black";
+                        image = Some(Image::Black);
                         thickness = 7.0;
                         imgblacktop.set_line_width(7.0);
                     }
@@ -513,7 +531,7 @@ pub fn render(
                     // blackline
                     if isom == "414" {
                         color = Some(black);
-                        image = "black";
+                        image = Some(Image::Black);
                         thickness = 4.0;
                     }
 
@@ -524,50 +542,50 @@ pub fn render(
                         area = true;
                         color = Some(yellow);
                         border = 3.0;
-                        image = "yellow";
+                        image = Some(Image::Yellow);
                     }
                     // lakes
                     if isom == "301" {
                         area = true;
                         color = Some(blue);
                         border = 5.0;
-                        image = "blue";
+                        image = Some(Image::Blue);
                     }
                     // marshes
                     if isom == "310" {
                         area = true;
                         color = Some(marsh);
-                        image = "marsh";
+                        image = Some(Image::Marsh);
                     }
                     // buildings
                     if isom == "526" {
                         area = true;
                         color = Some(purple);
-                        image = "black";
+                        image = Some(Image::Black);
                     }
                     // settlements
                     if isom == "527" {
                         area = true;
                         color = Some(olive);
-                        image = "olive";
+                        image = Some(Image::Olive);
                     }
                     // car parkings border
                     if isom == "529.1" || isom == "301.1" {
                         thickness = 2.0;
                         color = Some(black);
-                        image = "black";
+                        image = Some(Image::Black);
                     }
                     // car park area
                     if isom == "529" {
                         area = true;
                         color = Some(brown);
-                        image = "parkings";
+                        image = Some(Image::Parkings);
                     }
                     // car park top
                     if isom == "529T" {
                         area = true;
                         color = Some(brown);
-                        image = "brown";
+                        image = Some(Image::Brown);
                     }
                 }
             }
@@ -589,7 +607,7 @@ pub fn render(
                         }
                     }
                     if roadedge > 0.0 {
-                        if edgeimage == "blacktop" {
+                        if edgeimage == EdgeImage::BlackTop {
                             imgblacktop.unset_stroke_cap();
                             imgblacktop.set_line_width(roadedge);
                             imgblacktop.set_color(black);
@@ -606,7 +624,7 @@ pub fn render(
                     }
 
                     if !dashedline {
-                        if image == "blacktop" {
+                        if image == Some(Image::BlackTop) {
                             imgblacktop.set_line_width(thickness);
                             imgblacktop.set_color(color);
                             if thickness >= 9.0 {
@@ -615,7 +633,7 @@ pub fn render(
                             imgblacktop.draw_polyline(&poly);
                             imgblacktop.unset_stroke_cap();
                         }
-                        if image == "black" {
+                        if image == Some(Image::Black) {
                             imgblack.set_line_width(thickness);
                             imgblack.set_color(color);
                             if thickness >= 9.0 {
@@ -626,7 +644,7 @@ pub fn render(
                             imgblack.draw_polyline(&poly);
                         }
                     } else {
-                        if image == "blacktop" {
+                        if image == Some(Image::BlackTop) {
                             let interval_on = 1.0 + thickness * 8.0;
                             imgtempblacktop.set_dash(interval_on, thickness * 1.6);
                             if thickness >= 9.0 {
@@ -638,7 +656,7 @@ pub fn render(
                             imgtempblacktop.unset_dash();
                             imgtempblacktop.unset_stroke_cap();
                         }
-                        if image == "black" {
+                        if image == Some(Image::Black) {
                             let interval_on = 1.0 + thickness * 8.0;
                             imgtempblack.set_dash(interval_on, thickness * 1.6);
                             if thickness >= 9.0 {
@@ -652,14 +670,14 @@ pub fn render(
                         }
                     }
 
-                    if image == "blue" {
+                    if image == Some(Image::Blue) {
                         imgblue.set_color(color);
                         imgblue.set_line_width(thickness);
                         imgblue.draw_polyline(&poly)
                     }
 
-                    if image == "brown" {
-                        if edgeimage == "blacktop" {
+                    if image == Some(Image::Brown) {
+                        if edgeimage == EdgeImage::BlackTop {
                             imgbrowntop.set_line_width(thickness);
                             imgbrowntop.set_color(brown);
                             imgbrowntop.draw_polyline(&poly);
@@ -697,31 +715,31 @@ pub fn render(
                         }
                     }
 
-                    if image == "black" {
+                    if image == Some(Image::Black) {
                         imgblack.set_color(color);
                         imgblack.draw_filled_polygon(&polys)
                     }
-                    if image == "blue" {
+                    if image == Some(Image::Blue) {
                         imgblue.set_color(color);
                         imgblue.draw_filled_polygon(&polys)
                     }
-                    if image == "yellow" {
+                    if image == Some(Image::Yellow) {
                         imgyellow.set_color(color);
                         imgyellow.draw_filled_polygon(&polys)
                     }
-                    if image == "olive" {
+                    if image == Some(Image::Olive) {
                         imgolive.set_color(color);
                         imgolive.draw_filled_polygon(&polys)
                     }
-                    if image == "parkings" {
+                    if image == Some(Image::Parkings) {
                         imgparkings.set_color(color);
                         imgparkings.draw_filled_polygon(&polys)
                     }
-                    if image == "marsh" {
+                    if image == Some(Image::Marsh) {
                         imgmarsh.set_color(color);
                         imgmarsh.draw_filled_polygon(&polys)
                     }
-                    if image == "brown" {
+                    if image == Some(Image::Brown) {
                         imgbrown.set_color(color);
                         imgbrown.draw_filled_polygon(&polys)
                     }
