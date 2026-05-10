@@ -1,4 +1,4 @@
-use image::{DynamicImage, GrayImage, Luma, Rgb, Rgba};
+use image::{DynamicImage, GrayImage, Luma, Rgba};
 use imageproc::drawing::{draw_filled_circle_mut, draw_filled_rect_mut, draw_line_segment_mut};
 use imageproc::filter::median_filter;
 use imageproc::rect::Rect;
@@ -45,7 +45,6 @@ pub fn makevege(
         pointvolumeexponent,
         greenhigh,
         topweight,
-        greentone,
         vegezoffset: zoffset,
         uglimit,
         uglimit2,
@@ -372,11 +371,9 @@ pub fn makevege(
     let medyellow = config.medyellow;
 
     if med > 1 {
-        // imggr1 = median_filter(&imggr1, med / 2, med / 2);
         imggr1 = imggr1.median_filter(med / 2, med / 2);
     }
     if med2 > 1 {
-        // imggr1 = median_filter(&imggr1, med2 / 2, med2 / 2);
         imggr1 = imggr1.median_filter(med2 / 2, med2 / 2);
     }
     if proceed_yellows {
@@ -390,10 +387,6 @@ pub fn makevege(
         imgye2 = imgye2.median_filter(medyellow / 2, medyellow / 2);
     }
 
-    // convert to full image
-    // let imgye2 = imgye2.to_rgba(&palette);
-    // crate::util::expand_palette(&imgye2, &palette_ye);
-
     imgye2
         .write_to(
             &mut fs
@@ -402,12 +395,6 @@ pub fn makevege(
             &palette,
         )
         .expect("could not save output png");
-
-    // let mut palette = vec![Rgb([255, 255, 255])];
-    // palette.extend(greens.iter());
-
-    // let imggr1 = imggr1.to_rgba(&palette);
-    // crate::util::expand_palette_index(imggr1, &palette);
 
     imggr1
         .write_to(
@@ -418,54 +405,25 @@ pub fn makevege(
         )
         .expect("could not save output png");
 
-    // let mut img = DynamicImage::ImageRgba8(imggr1);
-    // image::imageops::overlay(&mut imggr1, &imgye2, 0, 0);
-    imggr1.overlay(&imgye2, 0, 0);
-
-    imggr1
-        .write_to(
-            &mut fs
-                .create(tmpfolder.join("vegetation.png"))
-                .expect("error saving png"),
-            &palette,
-        )
-        .expect("could not save output png");
-
-    // drop img to free memory
-    // drop(img);
-
     if vege_bitmode {
-        // TODO: make this better
-        // render green gradients
-        let greens = (0..greenshades.len())
-            .map(|i| {
-                Rgb([
-                    (greentone - greentone / (greenshades.len() - 1) as f64 * i as f64) as u8,
-                    (254.0 - (74.0 / (greenshades.len() - 1) as f64) * i as f64) as u8,
-                    (greentone - greentone / (greenshades.len() - 1) as f64 * i as f64) as u8,
-                ])
-            })
-            .collect::<Vec<_>>();
+        // create a new Luma image initialized with Zeros
+        let mut g_img = GrayImage::new(imggr1.width(), imggr1.height());
 
-        let g_img = fs
-            .read_image_png(tmpfolder.join("greens.png"))
-            .expect("Opening image failed");
-        let mut g_img = g_img.to_rgb8();
-        for pixel in g_img.pixels_mut() {
-            let mut found = false;
-            for (idx, color) in greens.iter().enumerate() {
-                // index starts at 2 for the first green tone
-                let c = idx as u8 + 2;
-                if pixel[0] == color[0] && pixel[1] == color[1] && pixel[2] == color[2] {
-                    *pixel = Rgb([c, c, c]);
-                    found = true;
+        // modify pixels of the new image based on the green shades
+        for (pixel, out) in imggr1.pixels().zip(g_img.pixels_mut()) {
+            // if pixel is background, just skip (already initialized to 0)
+            if *pixel == PaletteColorEnum::BackgroundWhite.to_color() {
+                continue;
+            }
+
+            // else, find the corresponding green shade and set the output pixel
+            for idx in 0..greenshades.len() {
+                if *pixel == PaletteColorEnum::GreenShade(idx as u8).to_color() {
+                    // index starts at 2 for the first green tone
+                    *out = Luma([idx as u8 + 2]);
                 }
             }
-            if !found {
-                *pixel = Rgb([0, 0, 0]);
-            }
         }
-        let g_img = DynamicImage::ImageRgb8(g_img).to_luma8();
 
         g_img
             .write_to(
@@ -512,6 +470,22 @@ pub fn makevege(
             )
             .expect("could not save output png");
     }
+
+    // overlay yellow on top of green and save as total vegetation image
+    imggr1.overlay(&imgye2, 0, 0);
+
+    imggr1
+        .write_to(
+            &mut fs
+                .create(tmpfolder.join("vegetation.png"))
+                .expect("error saving png"),
+            &palette,
+        )
+        .expect("could not save output png");
+
+    // drop images to free memory
+    drop(imggr1);
+    drop(imgye2);
 
     let mut imgwater = OurImage::new(
         img_width,

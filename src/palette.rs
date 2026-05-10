@@ -4,6 +4,7 @@ use image::{Luma, Rgba};
 use crate::config::Config;
 
 /// Our own wrapper around and image buffer that automatically handles drawing with a palette.
+#[derive(Clone)]
 pub struct OurImage {
     /// the inner paletted image
     image: image::ImageBuffer<PaletteColor, Vec<u8>>,
@@ -44,6 +45,13 @@ impl OurImage {
         Self { image }
     }
 
+    pub fn width(&self) -> u32 {
+        self.image.width()
+    }
+    pub fn height(&self) -> u32 {
+        self.image.height()
+    }
+
     pub fn median_filter(&self, x_radius: u32, y_radius: u32) -> Self {
         let filtered_image = imageproc::filter::median_filter(&self.image, x_radius, y_radius);
         Self {
@@ -53,6 +61,10 @@ impl OurImage {
 
     pub fn draw_filled_rect(&mut self, rect: imageproc::rect::Rect, color: PaletteColor) {
         imageproc::drawing::draw_filled_rect_mut(&mut self.image, rect, color);
+    }
+
+    pub fn pixels(&self) -> impl Iterator<Item = &PaletteColor> {
+        self.image.pixels()
     }
 
     /// Convert this image to an RGBA image using the given palette.
@@ -150,8 +162,14 @@ impl Palette {
                     (greentone - greentone / (num_greenshades - 1) as f64 * i as f64) as u8,
                     255,
                 ]);
+                // index starts at 2 for the first green tone apparently
+                let bit_value = i as u8 + 2;
+                palette[PaletteColorEnum::GreenShadeBit(i as u8)] =
+                    Rgba([bit_value, bit_value, bit_value, 255]);
             }
         }
+
+        // palette[PaletteColorEnum::GreenShadeBitNotFound] = Rgba([0, 0, 0, 255]);
 
         palette[PaletteColorEnum::BackgroundWhite] = Rgba([255, 255, 255, 255]);
         palette[PaletteColorEnum::Black] = Rgba([0, 0, 0, 255]);
@@ -175,6 +193,10 @@ pub enum PaletteColorEnum {
     /// A shade of green used for vegetation. Number of shades are configured by the config. Maximum
     /// 16 shades, so we have to reserve 16 colors for this.
     GreenShade(u8),
+    /// Used to output bit images of the green shades, where the value is directly translated into
+    /// [value, value, value, 255] in the palette, where value is between 0 and 15.
+    GreenShadeBit(u8),
+    // GreenShadeBitNotFound,
 }
 
 impl PaletteColorEnum {
@@ -190,6 +212,10 @@ impl PaletteColorEnum {
             Self::GreenShade(shade) => {
                 assert!(*shade < 16, "Green shade must be between 0 and 15");
                 PaletteColor(Luma([16 + *shade]))
+            }
+            Self::GreenShadeBit(shade) => {
+                assert!(*shade < 16, "Green shade bit must be between 0 and 15");
+                PaletteColor(Luma([32 + *shade]))
             }
         }
     }
