@@ -11,7 +11,7 @@ use crate::{
     config::Config,
     io::fs::FileSystem,
     shapefile::{
-        canvas::Canvas,
+        canvas::{Canvas, Color},
         mapping::{Mapping, Operator},
     },
 };
@@ -111,15 +111,19 @@ pub fn render(
     let mut imgtempblacktop = Canvas::new(width, height);
     let mut imgblue2 = Canvas::new(width, height);
 
-    let white = (255, 255, 255);
-    let black = (0, 0, 0);
-    let brown = (255, 150, 80);
+    let white = Color::new(255, 255, 255);
+    let black = Color::new(0, 0, 0);
+    let brown = Color::new(255, 150, 80);
 
-    let purple = config.buildingcolor;
-    let yellow = (255, 184, 83);
-    let blue = (29, 190, 255);
-    let marsh = (0, 10, 220);
-    let olive = (194, 176, 33);
+    let purple = Color::new(
+        config.buildingcolor.0,
+        config.buildingcolor.1,
+        config.buildingcolor.2,
+    );
+    let yellow = Color::new(255, 184, 83);
+    let blue = Color::new(29, 190, 255);
+    let marsh = Color::new(0, 10, 220);
+    let olive = Color::new(194, 176, 33);
 
     let shapetmpfolder = if batch {
         PathBuf::from("temp_shapefiles".to_string())
@@ -182,7 +186,7 @@ pub fn render(
             let mut edgeimage = EdgeImage::Black;
             let mut image = None;
             let mut thickness = 1.0;
-            let mut color: Option<(u8, u8, u8)> = None;
+            let mut color: Option<Color> = None;
             let mut dashedline = false;
             let mut border = 0.0;
 

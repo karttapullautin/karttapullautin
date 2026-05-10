@@ -10,6 +10,19 @@ pub struct Canvas<'a> {
     stroke: tiny_skia::Stroke,
 }
 
+#[derive(Clone, Copy)]
+pub struct Color {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+}
+
+impl Color {
+    pub fn new(r: u8, g: u8, b: u8) -> Self {
+        Self { r, g, b }
+    }
+}
+
 impl Canvas<'_> {
     pub fn new(width: u32, height: u32) -> Self {
         Self::from_pixmap(tiny_skia::Pixmap::new(width, height).unwrap())
@@ -38,9 +51,9 @@ impl Canvas<'_> {
     }
 
     #[inline]
-    pub fn set_color(&mut self, rgb: (u8, u8, u8)) {
+    pub fn set_color(&mut self, rgb: Color) {
         self.ppaint
-            .set_color(tiny_skia::Color::from_rgba8(rgb.0, rgb.1, rgb.2, 255));
+            .set_color(tiny_skia::Color::from_rgba8(rgb.r, rgb.g, rgb.b, 255));
     }
 
     #[inline]
