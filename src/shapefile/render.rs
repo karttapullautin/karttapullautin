@@ -715,33 +715,20 @@ pub fn render(
                         }
                     }
 
-                    if image == Some(Image::Black) {
-                        imgblack.set_color(color);
-                        imgblack.draw_filled_polygon(&polys)
-                    }
-                    if image == Some(Image::Blue) {
-                        imgblue.set_color(color);
-                        imgblue.draw_filled_polygon(&polys)
-                    }
-                    if image == Some(Image::Yellow) {
-                        imgyellow.set_color(color);
-                        imgyellow.draw_filled_polygon(&polys)
-                    }
-                    if image == Some(Image::Olive) {
-                        imgolive.set_color(color);
-                        imgolive.draw_filled_polygon(&polys)
-                    }
-                    if image == Some(Image::Parkings) {
-                        imgparkings.set_color(color);
-                        imgparkings.draw_filled_polygon(&polys)
-                    }
-                    if image == Some(Image::Marsh) {
-                        imgmarsh.set_color(color);
-                        imgmarsh.draw_filled_polygon(&polys)
-                    }
-                    if image == Some(Image::Brown) {
-                        imgbrown.set_color(color);
-                        imgbrown.draw_filled_polygon(&polys)
+                    let image_canvas = match image {
+                        Some(Image::Black) => Some(&mut imgblack),
+                        Some(Image::Blue) => Some(&mut imgblue),
+                        Some(Image::Yellow) => Some(&mut imgyellow),
+                        Some(Image::Olive) => Some(&mut imgolive),
+                        Some(Image::Parkings) => Some(&mut imgparkings),
+                        Some(Image::Marsh) => Some(&mut imgmarsh),
+                        Some(Image::Brown) => Some(&mut imgbrown),
+                        _ => None,
+                    };
+
+                    if let Some(image_canvas) = image_canvas {
+                        image_canvas.set_color(color);
+                        image_canvas.draw_filled_polygon(&polys);
                     }
                 }
             }
