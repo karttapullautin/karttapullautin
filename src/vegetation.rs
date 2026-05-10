@@ -350,8 +350,6 @@ pub fn makevege(
                             (block as i32 + addition) as u32,
                         ),
                         PaletteColorEnum::GreenShade(greenshade as u8 - 1).to_color(),
-                        // Luma::from([greenshade as u8]),
-                        // PaletteColor([greenshade as u8]),
                     );
                 }
             }

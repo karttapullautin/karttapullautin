@@ -21,8 +21,7 @@ impl imageproc::drawing::Canvas for PalettedImage {
     }
 
     fn draw_pixel(&mut self, x: u32, y: u32, color: Self::Pixel) {
-        // custom logic to honor transparency (TODO: not needed when we never draw with any transparent color...)
-        // Also ignore any background white
+        // custom logic to honor transparency Also ignore any background white
         if color == PaletteColorEnum::Transparent.to_color()
             || color == PaletteColorEnum::BackgroundWhite.to_color()
         {
