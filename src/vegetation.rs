@@ -1,4 +1,4 @@
-use image::{DynamicImage, GrayImage, Luma, Rgb, Rgba, RgbaImage};
+use image::{DynamicImage, GrayImage, Luma, Rgb, Rgba};
 use imageproc::drawing::{draw_filled_circle_mut, draw_filled_rect_mut, draw_line_segment_mut};
 use imageproc::filter::median_filter;
 use imageproc::rect::Rect;
@@ -568,7 +568,7 @@ pub fn makevege(
 
     let scalefactor = config.scalefactor;
 
-    let underg = Rgba([64, 121, 0, 255]);
+    // factor to convert from coordinates to pixels
     let tmpfactor = (600.0 / 254.0 / scalefactor) as f32;
 
     let bf32 = block as f32;
@@ -577,10 +577,10 @@ pub fn makevege(
     let hh = hf32 * bf32;
     let mut x = 0.0_f32;
 
-    let mut imgug = RgbaImage::from_pixel(
+    let mut imgug = OurImage::new(
         (w_block as f64 * block * 600.0 / 254.0 / scalefactor) as u32,
         (h_block as f64 * block * 600.0 / 254.0 / scalefactor) as u32,
-        Rgba([255, 255, 255, 0]),
+        PaletteColorEnum::Transparent.to_color(),
     );
     let mut img_ug_bit = GrayImage::from_pixel(
         (w_block as f64 * block * 600.0 / 254.0 / scalefactor) as u32,
@@ -612,7 +612,7 @@ pub fn makevege(
                         tmpfactor * (x + bf32 * 3.0),
                         tmpfactor * (hf32 * bf32 - y + bf32 * 3.0),
                     ),
-                    underg,
+                    PaletteColorEnum::Undergrowth.to_color(),
                 );
                 draw_line_segment_mut(
                     &mut imgug,
@@ -624,7 +624,7 @@ pub fn makevege(
                         tmpfactor * (x + bf32 * 3.0) + 1.0,
                         tmpfactor * (hf32 * bf32 - y + bf32 * 3.0),
                     ),
-                    underg,
+                    PaletteColorEnum::Undergrowth.to_color(),
                 );
                 draw_line_segment_mut(
                     &mut imgug,
@@ -636,7 +636,7 @@ pub fn makevege(
                         tmpfactor * (x - bf32 * 3.0),
                         tmpfactor * (hf32 * bf32 - y + bf32 * 3.0),
                     ),
-                    underg,
+                    PaletteColorEnum::Undergrowth.to_color(),
                 );
                 draw_line_segment_mut(
                     &mut imgug,
@@ -648,7 +648,7 @@ pub fn makevege(
                         tmpfactor * (x - bf32 * 3.0) + 1.0,
                         tmpfactor * (hf32 * bf32 - y + bf32 * 3.0),
                     ),
-                    underg,
+                    PaletteColorEnum::Undergrowth.to_color(),
                 );
 
                 if vege_bitmode {
@@ -668,7 +668,7 @@ pub fn makevege(
                     &mut imgug,
                     (tmpfactor * x, tmpfactor * (hf32 * bf32 - y - bf32 * 3.0)),
                     (tmpfactor * x, tmpfactor * (hf32 * bf32 - y + bf32 * 3.0)),
-                    underg,
+                    PaletteColorEnum::Undergrowth.to_color(),
                 );
                 draw_line_segment_mut(
                     &mut imgug,
@@ -680,7 +680,7 @@ pub fn makevege(
                         tmpfactor * x + 1.0,
                         tmpfactor * (hf32 * bf32 - y + bf32 * 3.0),
                     ),
-                    underg,
+                    PaletteColorEnum::Undergrowth.to_color(),
                 );
 
                 if vege_bitmode {
@@ -705,7 +705,7 @@ pub fn makevege(
             &mut fs
                 .create(tmpfolder.join("undergrowth.png"))
                 .expect("error saving png"),
-            image::ImageFormat::Png,
+            &palette,
         )
         .expect("could not save output png");
 

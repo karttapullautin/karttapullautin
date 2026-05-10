@@ -130,7 +130,7 @@ impl Palette {
 
         // initialize the palette with the colors from the config, and any hard-coded colors
 
-        palette[PaletteColorEnum::Transparent] = Rgba([0, 0, 0, 0]);
+        palette[PaletteColorEnum::Transparent] = Rgba([255, 255, 255, 0]);
 
         palette[PaletteColorEnum::Yellow2] = Rgba([255, 219, 166, 255]);
 
