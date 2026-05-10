@@ -13,6 +13,7 @@ use crate::io::bytes::FromToBytes;
 use crate::io::fs::FileSystem;
 use crate::io::heightmap::HeightMap;
 use crate::io::xyz::XyzInternalReader;
+use crate::palette::{OurImage, Palette, PaletteColorEnum};
 use crate::vec2d::Vec2D;
 
 pub fn makevege(
@@ -29,6 +30,8 @@ pub fn makevege(
     // in world coordinates
     let size = hmap.scale;
     let xyz = &hmap.grid;
+
+    let palette = Palette::new(config);
 
     let thresholds = &config.thresholds;
     let block = config.greendetectsize;
@@ -247,8 +250,11 @@ pub fn makevege(
 
     // render yellow as multiple small squares
     let ye2 = Rgba([255, 219, 166, 255]);
-    let palette_ye = [Rgba([0, 0, 0, 0]), ye2];
-    let mut imgye2 = GrayImage::from_pixel(img_width, img_height, Luma([0]));
+    let mut imgye2 = OurImage::new(
+        img_width,
+        img_height,
+        PaletteColorEnum::BackgroundWhite.to_color(),
+    );
     for x in 0..(w_3 - 2) {
         for y in 0..(h_3 - 2) {
             let mut ghit2 = 0;
@@ -262,25 +268,13 @@ pub fn makevege(
                 }
             }
             if ghit2 as f64 / (highhit2 as f64 + ghit2 as f64 + 0.01) > yellowthreshold {
-                draw_filled_rect_mut(
-                    &mut imgye2,
+                imgye2.draw_filled_rect(
                     Rect::at(x as i32 * 3 + 2, (h_3 as i32 - y as i32) * 3 - 3).of_size(3, 3),
-                    Luma::from([1]),
+                    PaletteColorEnum::Yellow2.to_color(),
                 );
             }
         }
     }
-
-    // render green gradients
-    let greens = (0..greenshades.len())
-        .map(|i| {
-            Rgb([
-                (greentone - greentone / (greenshades.len() - 1) as f64 * i as f64) as u8,
-                (254.0 - (74.0 / (greenshades.len() - 1) as f64) * i as f64) as u8,
-                (greentone - greentone / (greenshades.len() - 1) as f64 * i as f64) as u8,
-            ])
-        })
-        .collect::<Vec<_>>();
 
     // compute global average firsthit
     let aveg = {
@@ -298,7 +292,17 @@ pub fn makevege(
         aveg as f64 / avecount as f64
     };
 
-    let mut imggr1 = GrayImage::from_pixel(img_width, img_height, Luma([0]));
+    // let mut imggr1 = GrayImage::from_pixel(img_width, img_height, Luma([0]));
+    // let mut imggr1 = ImageBuffer::<PaletteColor, Vec<u8>>::from_pixel(
+    //     img_width,
+    //     img_height,
+    //     PaletteColorEnum::Transparent.to_color(),
+    // );
+    let mut imggr1 = OurImage::new(
+        img_width,
+        img_height,
+        PaletteColorEnum::BackgroundWhite.to_color(),
+    );
     for x in 0..w_block {
         for y in 0..h_block {
             let roof = top[(x, y)]
@@ -344,8 +348,7 @@ pub fn makevege(
                     }
                 }
                 if greenshade > 0 {
-                    draw_filled_rect_mut(
-                        &mut imggr1,
+                    imggr1.draw_filled_rect(
                         Rect::at(
                             ((x as f64 - 0.5) * block) as i32 - addition,
                             (((h_block as f64 - y as f64) - 0.5) * block) as i32 - addition,
@@ -354,7 +357,9 @@ pub fn makevege(
                             (block as i32 + addition) as u32,
                             (block as i32 + addition) as u32,
                         ),
-                        Luma::from([greenshade as u8]),
+                        PaletteColorEnum::GreenShade(greenshade as u8 - 1).to_color(),
+                        // Luma::from([greenshade as u8]),
+                        // PaletteColor([greenshade as u8]),
                     );
                 }
             }
@@ -367,63 +372,82 @@ pub fn makevege(
     let medyellow = config.medyellow;
 
     if med > 1 {
-        imggr1 = median_filter(&imggr1, med / 2, med / 2);
+        // imggr1 = median_filter(&imggr1, med / 2, med / 2);
+        imggr1 = imggr1.median_filter(med / 2, med / 2);
     }
     if med2 > 1 {
-        imggr1 = median_filter(&imggr1, med2 / 2, med2 / 2);
+        // imggr1 = median_filter(&imggr1, med2 / 2, med2 / 2);
+        imggr1 = imggr1.median_filter(med2 / 2, med2 / 2);
     }
     if proceed_yellows {
         if med > 1 {
-            imgye2 = median_filter(&imgye2, med / 2, med / 2);
+            imgye2 = imgye2.median_filter(med / 2, med / 2);
         }
         if med2 > 1 {
-            imgye2 = median_filter(&imgye2, med2 / 2, med2 / 2);
+            imgye2 = imgye2.median_filter(med2 / 2, med2 / 2);
         }
     } else if medyellow > 1 {
-        imgye2 = median_filter(&imgye2, medyellow / 2, medyellow / 2);
+        imgye2 = imgye2.median_filter(medyellow / 2, medyellow / 2);
     }
 
     // convert to full image
-    let imgye2 = crate::util::expand_palette(imgye2, &palette_ye);
+    // let imgye2 = imgye2.to_rgba(&palette);
+    // crate::util::expand_palette(&imgye2, &palette_ye);
 
     imgye2
         .write_to(
             &mut fs
                 .create(tmpfolder.join("yellow.png"))
                 .expect("error saving png"),
-            image::ImageFormat::Png,
+            &palette,
         )
         .expect("could not save output png");
 
-    let mut palette = vec![Rgb([255, 255, 255])];
-    palette.extend(greens.iter());
+    // let mut palette = vec![Rgb([255, 255, 255])];
+    // palette.extend(greens.iter());
 
-    let imggr1 = crate::util::expand_palette(imggr1, &palette);
+    // let imggr1 = imggr1.to_rgba(&palette);
+    // crate::util::expand_palette_index(imggr1, &palette);
 
     imggr1
         .write_to(
             &mut fs
                 .create(tmpfolder.join("greens.png"))
                 .expect("error saving png"),
-            image::ImageFormat::Png,
+            &palette,
         )
         .expect("could not save output png");
 
-    let mut img = DynamicImage::ImageRgb8(imggr1);
-    image::imageops::overlay(&mut img, &DynamicImage::ImageRgba8(imgye2), 0, 0);
+    // let mut img = DynamicImage::ImageRgba8(imggr1);
+    // image::imageops::overlay(&mut imggr1, &imgye2, 0, 0);
+    imggr1.overlay(&imgye2, 0, 0);
 
-    img.write_to(
-        &mut fs
-            .create(tmpfolder.join("vegetation.png"))
-            .expect("error saving png"),
-        image::ImageFormat::Png,
-    )
-    .expect("could not save output png");
+    imggr1
+        .write_to(
+            &mut fs
+                .create(tmpfolder.join("vegetation.png"))
+                .expect("error saving png"),
+            &palette,
+            // image::ImageFormat::Png,
+        )
+        .expect("could not save output png");
 
     // drop img to free memory
-    drop(img);
+    // drop(img);
 
     if vege_bitmode {
+        // TODO: make this better
+        // render green gradients
+        let greens = (0..greenshades.len())
+            .map(|i| {
+                Rgb([
+                    (greentone - greentone / (greenshades.len() - 1) as f64 * i as f64) as u8,
+                    (254.0 - (74.0 / (greenshades.len() - 1) as f64) * i as f64) as u8,
+                    (greentone - greentone / (greenshades.len() - 1) as f64 * i as f64) as u8,
+                ])
+            })
+            .collect::<Vec<_>>();
+
         let g_img = fs
             .read_image_png(tmpfolder.join("greens.png"))
             .expect("Opening image failed");
