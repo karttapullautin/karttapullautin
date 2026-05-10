@@ -115,7 +115,7 @@ pub fn render(
     let black = Color::new(0, 0, 0);
     let brown = Color::new(255, 150, 80);
 
-    let purple = Color::new(
+    let buildingcolor = Color::new(
         config.buildingcolor.0,
         config.buildingcolor.1,
         config.buildingcolor.2,
@@ -348,7 +348,7 @@ pub fn render(
                 {
                     area = true;
                     border = 0.0;
-                    color = Some((purple, Image::Black));
+                    color = Some((buildingcolor, Image::Black));
                 }
 
                 // settlement
@@ -534,7 +534,7 @@ pub fn render(
                     // buildings
                     if isom == "526" {
                         area = true;
-                        color = Some((purple, Image::Black));
+                        color = Some((buildingcolor, Image::Black));
                     }
                     // settlements
                     if isom == "527" {
@@ -612,40 +612,28 @@ pub fn render(
                             }
                             imgblack.draw_polyline(&poly);
                         }
-                    } else {
-                        if image == Image::BlackTop {
-                            let interval_on = 1.0 + thickness * 8.0;
-                            imgtempblacktop.set_dash(interval_on, thickness * 1.6);
-                            if thickness >= 9.0 {
-                                imgtempblacktop.set_stroke_cap_round();
-                            }
-                            imgtempblacktop.set_color(color);
-                            imgtempblacktop.set_line_width(thickness);
-                            imgtempblacktop.draw_polyline(&poly);
-                            imgtempblacktop.unset_dash();
-                            imgtempblacktop.unset_stroke_cap();
+                    } else if let Some(img) = match image {
+                        Image::BlackTop => Some(&mut imgtempblacktop),
+                        Image::Black => Some(&mut imgtempblack),
+                        _ => None,
+                    } {
+                        let interval_on = 1.0 + thickness * 8.0;
+                        img.set_dash(interval_on, thickness * 1.6);
+                        if thickness >= 9.0 {
+                            img.set_stroke_cap_round();
                         }
-                        if image == Image::Black {
-                            let interval_on = 1.0 + thickness * 8.0;
-                            imgtempblack.set_dash(interval_on, thickness * 1.6);
-                            if thickness >= 9.0 {
-                                imgtempblack.set_stroke_cap_round();
-                            }
-                            imgtempblack.set_color(color);
-                            imgtempblack.set_line_width(thickness);
-                            imgtempblack.draw_polyline(&poly);
-                            imgtempblack.unset_dash();
-                            imgtempblack.unset_stroke_cap();
-                        }
+                        img.set_color(color);
+                        img.set_line_width(thickness);
+                        img.draw_polyline(&poly);
+                        img.unset_dash();
+                        img.unset_stroke_cap();
                     }
 
                     if image == Image::Blue {
                         imgblue.set_color(color);
                         imgblue.set_line_width(thickness);
                         imgblue.draw_polyline(&poly)
-                    }
-
-                    if image == Image::Brown {
+                    } else if image == Image::Brown {
                         if edgeimage == EdgeImage::BlackTop {
                             imgbrowntop.set_line_width(thickness);
                             imgbrowntop.set_color(brown);
