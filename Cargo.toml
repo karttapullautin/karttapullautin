@@ -22,6 +22,8 @@ image = { version = "0.25", default-features = false, features = [
 	"jpeg",
 ] }
 
+png = "0.18"
+
 imageproc = { version = "0.26", default-features = false, features = [
 	"rayon",
 ] }

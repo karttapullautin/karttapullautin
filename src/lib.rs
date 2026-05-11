@@ -12,6 +12,7 @@ pub mod geometry;
 pub mod io;
 pub mod knolls;
 pub mod merge;
+pub mod palette;
 pub mod process;
 pub mod render;
 pub mod util;
