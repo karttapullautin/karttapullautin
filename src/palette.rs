@@ -134,8 +134,8 @@ impl Palette {
             let greentone = config.greentone;
 
             assert!(
-                num_greenshades <= 16,
-                "Number of green shades must be between 0 and 16"
+                num_greenshades <= 64,
+                "Number of green shades must be between 0 and 64"
             );
 
             for i in 0..num_greenshades {
@@ -168,7 +168,7 @@ pub enum PaletteColorEnum {
     Undergrowth,
     Blue,
     /// A shade of green used for vegetation. Number of shades are configured by the config. Maximum
-    /// 16 shades, so we have to reserve 16 colors for this.
+    /// 64 shades, so we have to reserve 64 colors for this.
     GreenShade(u8),
 }
 
@@ -183,7 +183,7 @@ impl PaletteColorEnum {
             Self::Undergrowth => PaletteColor(Luma([5])),
 
             Self::GreenShade(shade) => {
-                assert!(*shade < 16, "Green shade must be between 0 and 15");
+                assert!(*shade < 64, "Green shade must be between 0 and 63");
                 PaletteColor(Luma([16 + *shade]))
             }
         }
