@@ -1,5 +1,6 @@
 //! This module contains logic for planning the processing execution.
 
+use std::path::Path;
 use std::path::PathBuf;
 
 use anyhow::Context;
@@ -35,7 +36,7 @@ impl Plan {
         fs: F,
         input_folder: &str,
         output_folder: &str,
-        staging_folder: &str,
+        staging_folder: &Path,
         padding: f64,
     ) -> anyhow::Result<Self> {
         // list all the files that we have to process

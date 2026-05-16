@@ -50,7 +50,8 @@ pub fn launch_threads<F: FileSystem + Send + Clone + 'static>(
     // first unzip all zip files (if any) to a temporary folder, so that the threads can access the
     // shapefiles without having to worry about unzipping them in parallel
     let shapefiletmpdir = PathBuf::from("temp_shapefiles".to_string());
-    fs.create_dir_all(&shapefiletmpdir).unwrap();
+    fs.create_dir_all(&shapefiletmpdir)
+        .context("Could not create temporary folder for shapefiles")?;
     if !zip_files.is_empty() {
         crate::shapefile::unzip_shapefiles(&fs, zip_files).unwrap();
     }
@@ -58,12 +59,17 @@ pub fn launch_threads<F: FileSystem + Send + Clone + 'static>(
     // TODO: this is hard-coded but should maybe be configurable?
     let padding = 127.0;
 
+    // folder where we store temporary extracted files to process later
+    let staging_folder = Path::new("temp_staging");
+    fs.create_dir_all(staging_folder)
+        .context("Could not create staging folder")?;
+
     let timing = Timing::start_now("create_plan");
     let plan = crate::plan::Plan::new_from_input_files(
         fs.clone(),
         &config.lazfolder,
         &config.batchoutfolder,
-        "temp_staging",
+        staging_folder,
         padding,
     )
     .context("creating plan")?;
@@ -72,7 +78,7 @@ pub fn launch_threads<F: FileSystem + Send + Clone + 'static>(
     let plan = Arc::new(plan);
 
     // insert them into the queue
-    let (tx, rx) = crate::util::make_queue::<InputFileIndex>();
+    let (tx, rx) = crate::util::make_bounded_queue::<InputFileIndex>(2);
 
     // make sure the output directory exists
     fs.create_dir_all(&config.batchoutfolder)
@@ -99,11 +105,6 @@ pub fn launch_threads<F: FileSystem + Send + Clone + 'static>(
     }
 
     let mut planner = plan.naive_planner();
-
-    // folder where we store temporary extracted files to process later
-    let staging_folder = Path::new("temp_staging");
-    fs.create_dir_all(staging_folder)
-        .context("Could not create staging folder")?;
 
     let mut writers: HashMap<InputFileIndex, XyzInternalWriter<_>> = HashMap::default();
 
@@ -243,7 +244,8 @@ pub fn launch_threads<F: FileSystem + Send + Clone + 'static>(
     }
 
     // cleanup extracted shapefiles
-    fs.remove_dir_all(&shapefiletmpdir).unwrap();
+    fs.remove_dir_all(&shapefiletmpdir)
+        .context("Could not remove temporary shapefile folder")?;
     Ok(())
 }
 

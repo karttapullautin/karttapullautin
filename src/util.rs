@@ -155,14 +155,20 @@ pub fn write_object<W: std::io::Write, O: serde::Serialize>(
     Ok(())
 }
 
-/// A simple Single-Producer-Multiple-Consumer queue for passing work to processing threads.
-pub fn make_queue<T>() -> (Producer<T>, Consumer<T>) {
+/// A bounded Single-Producer-Multiple-Consumer queue.
+///
+/// [`Producer::push`] blocks when the queue contains `capacity` items, resuming once a consumer
+/// pops an item. This provides backpressure so the producer cannot outpace consumers.
+pub fn make_bounded_queue<T>(capacity: usize) -> (Producer<T>, Consumer<T>) {
+    assert!(capacity > 0, "queue capacity must be at least 1");
     let inner = Inner {
         inner: Mutex::new(InnerMut {
             queue: VecDeque::new(),
             has_closed: false,
         }),
+        capacity,
         var_has_items: Condvar::new(),
+        var_has_space: Condvar::new(),
     };
     let inner = Arc::new(inner);
 
@@ -175,7 +181,9 @@ pub fn make_queue<T>() -> (Producer<T>, Consumer<T>) {
 
 struct Inner<T> {
     inner: Mutex<InnerMut<T>>,
+    capacity: usize,
     var_has_items: Condvar,
+    var_has_space: Condvar,
 }
 
 struct InnerMut<T> {
@@ -188,11 +196,16 @@ pub struct Producer<T> {
 }
 
 impl<T> Producer<T> {
-    /// Pushes an item to the queue. Returns `Err` if the queue has been closed.
+    /// Pushes an item to the queue. Blocks if the queue is at capacity until space is available.
     pub fn push(&self, item: T) {
+        let start = Instant::now();
         let mut inner = self.inner.inner.lock().unwrap();
+        while inner.queue.len() >= self.inner.capacity {
+            inner = self.inner.var_has_space.wait(inner).unwrap();
+        }
         inner.queue.push_back(item);
         self.inner.var_has_items.notify_one();
+        log::debug!("Waited {:.2?} to push item to queue", start.elapsed());
     }
 }
 
@@ -212,9 +225,12 @@ pub struct Consumer<T> {
 impl<T> Consumer<T> {
     /// Pops an item from the queue. Returns `None` if the queue has been closed and is empty.
     pub fn pop(&self) -> Option<T> {
+        let start = Instant::now();
         let mut inner = self.inner.inner.lock().unwrap();
         loop {
             if let Some(item) = inner.queue.pop_front() {
+                self.inner.var_has_space.notify_one();
+                log::debug!("Waited {:.2?} to pop item from queue", start.elapsed());
                 return Some(item);
             }
             if inner.has_closed {
@@ -233,6 +249,30 @@ mod tests {
     #[test]
     fn test_queue() {
         let (producer, consumer) = make_queue();
+
+        let producer_thread = thread::spawn(move || {
+            for i in 0..10 {
+                producer.push(i);
+            }
+        });
+
+        let consumer_thread = thread::spawn(move || {
+            let mut items = Vec::new();
+            while let Some(item) = consumer.pop() {
+                items.push(item);
+            }
+            items
+        });
+
+        producer_thread.join().unwrap();
+        let items = consumer_thread.join().unwrap();
+        assert_eq!(items, (0..10).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_bounded_queue_backpressure() {
+        // Queue of capacity 2: producer should block until consumers drain items.
+        let (producer, consumer) = make_bounded_queue(2);
 
         let producer_thread = thread::spawn(move || {
             for i in 0..10 {
