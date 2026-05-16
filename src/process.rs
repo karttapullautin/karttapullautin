@@ -77,15 +77,18 @@ pub fn launch_threads<F: FileSystem + Send + Clone + 'static>(
 
     let plan = Arc::new(plan);
 
-    // insert them into the queue
-    let (tx, rx) = crate::util::make_bounded_queue::<InputFileIndex>(2);
-
     // make sure the output directory exists
     fs.create_dir_all(&config.batchoutfolder)
         .expect("Could not create output folder");
 
     // we only need to launch maximum as many threads as there are files to process
     let num_threads = config.processes.min(plan.files_to_process().len() as u64) as usize;
+
+    // Create a queue where we send the files that are ready to process to the worker threads.
+    // Bound it based on the number of threads so that we cannot have too many files converted
+    // waiting for processing at a time.
+    // TODO: make it configurable?
+    let (tx, rx) = crate::util::make_bounded_queue::<InputFileIndex>(num_threads / 2);
 
     // do the processing
     let mut handles: Vec<thread::JoinHandle<()>> = Vec::with_capacity(num_threads);
@@ -96,11 +99,13 @@ pub fn launch_threads<F: FileSystem + Send + Clone + 'static>(
         let has_zip = !zip_files.is_empty();
         let arc_plan = plan.clone();
 
-        let handle = thread::spawn(move || {
-            info!("Starting thread");
-            batch_process(&config, &fs, &format!("{}", i + 1), has_zip, arc_plan, rx);
-        });
-        thread::sleep(std::time::Duration::from_millis(100));
+        let handle = thread::Builder::new()
+            .name(format!("worker_{i}"))
+            .spawn(move || {
+                info!("Starting thread");
+                batch_process(&config, &fs, &format!("{}", i + 1), has_zip, arc_plan, rx);
+            })
+            .expect("Could not spawn thread");
         handles.push(handle);
     }
 
@@ -129,7 +134,7 @@ pub fn launch_threads<F: FileSystem + Send + Clone + 'static>(
         for op in ops {
             match op {
                 Operation::Extract { from, to } => {
-                    println!("Extracting from {from:?} to {to:?}");
+                    log::trace!("Extracting from {from:?} to {to:?}");
 
                     let laz_p = plan.get_input_file(from);
 
@@ -197,7 +202,6 @@ pub fn launch_threads<F: FileSystem + Send + Clone + 'static>(
                                 Entry::Occupied(e) => e.into_mut(),
                                 Entry::Vacant(e) => {
                                     let outfile = &to_file.staging_path;
-                                    println!("Creating writer for tile {to_i:?} at {outfile:?}");
                                     let writer = XyzInternalWriter::new(
                                         fs.create(outfile)
                                             .context("Could not create output file")?,
@@ -210,27 +214,21 @@ pub fn launch_threads<F: FileSystem + Send + Clone + 'static>(
                             writer
                                 .write_records(&records)
                                 .expect("Could not write records");
-
-                            // *point_counts.entry(to_i).or_default() += records.len() as u64;
                         }
                     }
                 }
                 Operation::Process { tile } => {
-                    println!("Processing tile {tile:?}");
+                    log::trace!("Processing tile {tile:?}");
 
                     // make sure we close the file for this tile
                     if let Some(mut w) = writers.remove(&tile) {
                         w.finish().context("Could not finish writer")?;
                     } else {
-                        log::error!(
-                            "Could not find writer for tile {tile:?} when trying to process it"
-                        );
-                        // TODO: error???
-                        continue;
+                        anyhow::bail!("Internal error: missing writer for tile {tile:?}");
                     };
 
                     // finally post output file for processing!
-                    // TODO: backpressure if the queue is full?
+                    // This will block the main thread if the queue is full to provide backpressure.
                     tx.push(tile);
                 }
             }

@@ -248,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_queue() {
-        let (producer, consumer) = make_queue();
+        let (producer, consumer) = make_bounded_queue(usize::MAX);
 
         let producer_thread = thread::spawn(move || {
             for i in 0..10 {
@@ -295,7 +295,7 @@ mod tests {
 
     #[test]
     fn test_multiple_consumer() {
-        let (producer, consumer) = make_queue();
+        let (producer, consumer) = make_bounded_queue(usize::MAX);
 
         let producer_thread = thread::spawn(move || {
             for i in 0..10 {
