@@ -1,10 +1,12 @@
 use anyhow::Context;
 use image::{GrayImage, Luma, Rgb, RgbImage, Rgba, RgbaImage};
 use itertools::izip;
-use las::{PointDataBuilder, Reader, raw::Header};
+use las::{PointDataBuilder, Reader};
 use log::debug;
 use log::info;
 use rand::prelude::*;
+use rustc_hash::FxHashMap as HashMap;
+use std::collections::hash_map::Entry;
 use std::error::Error;
 use std::io::BufRead;
 use std::io::Write;
@@ -24,7 +26,9 @@ use crate::io::xyz::XyzRecord;
 use crate::knolls;
 use crate::merge;
 use crate::plan::InputFileIndex;
+use crate::plan::Operation;
 use crate::plan::Plan;
+use crate::plan::Rect;
 use crate::render;
 use crate::util::Consumer;
 use crate::util::Timing;
@@ -51,12 +55,19 @@ pub fn launch_threads<F: FileSystem + Send + Clone + 'static>(
         crate::shapefile::unzip_shapefiles(&fs, zip_files).unwrap();
     }
 
+    // TODO: this is hard-coded but should maybe be configurable?
+    let padding = 127.0;
+
+    let timing = Timing::start_now("create_plan");
     let plan = crate::plan::Plan::new_from_input_files(
         fs.clone(),
         &config.lazfolder,
         &config.batchoutfolder,
+        "temp_staging",
+        padding,
     )
     .context("creating plan")?;
+    drop(timing);
 
     let plan = Arc::new(plan);
 
@@ -87,10 +98,142 @@ pub fn launch_threads<F: FileSystem + Send + Clone + 'static>(
         handles.push(handle);
     }
 
-    // we can now start sending the files to process to the threads
-    for laz in plan.files_to_process() {
-        // send only the ids of the files
-        tx.push(*laz);
+    let mut planner = plan.naive_planner();
+
+    // folder where we store temporary extracted files to process later
+    let staging_folder = Path::new("temp_staging");
+    fs.create_dir_all(staging_folder)
+        .context("Could not create staging folder")?;
+
+    let mut writers: HashMap<InputFileIndex, XyzInternalWriter<_>> = HashMap::default();
+
+    let options = las::ReaderOptions::default().with_laz_parallelism(if config.laz_parallel {
+        las::LazParallelism::Yes
+    } else {
+        las::LazParallelism::No
+    });
+    log::debug!("Using LAZ parallelism: {:?}", config.laz_parallel);
+
+    // prepare buffers needed for extraction of LAZ files based on the planned operations
+    let mut records = Vec::with_capacity(LAZ_BUFFER_SIZE);
+
+    let &Config {
+        zoff, thinfactor, ..
+    } = &*config;
+
+    let mut rng = rand::rng();
+    let randdist = rand::distr::Bernoulli::new(thinfactor).unwrap();
+
+    while let Some(ops) = planner.next_operation() {
+        for op in ops {
+            match op {
+                Operation::Extract { from, to } => {
+                    println!("Extracting from {from:?} to {to:?}");
+
+                    let laz_p = plan.get_input_file(from);
+
+                    let mut reader = Reader::with_options(
+                        fs.open(&laz_p.path).expect("Could not open file"),
+                        options,
+                    )
+                    .expect("Could not create reader");
+
+                    let mut pd = PointDataBuilder::new().for_header(reader.header()).build();
+
+                    loop {
+                        // points.clear();
+                        // PD.clear?
+                        let n = reader
+                            .fill_points(LAZ_BUFFER_SIZE as u64, &mut pd)
+                            .expect("could not read LAZ points");
+                        if n == 0 {
+                            break;
+                        }
+
+                        // for each dependency, we need to check all points against their boundary
+                        // to know if they should be included in the output.
+
+                        for &to_i in &to {
+                            let to_file = plan.get_input_file(to_i);
+                            let padded_bounds = to_file.header.bounds.expand(padding);
+
+                            let to_self = to_i == from;
+
+                            // convert all read points to records
+                            records.clear();
+                            for (
+                                pt_x,
+                                pt_y,
+                                pt_z,
+                                pt_classification,
+                                pt_number_of_returns,
+                                pt_return_number,
+                            ) in izip!(
+                                pd.x(),
+                                pd.y(),
+                                pd.z(),
+                                pd.classification(),
+                                pd.number_of_returns(),
+                                pd.return_number()
+                            ) {
+                                if (to_self || padded_bounds.contains(pt_x, pt_y))
+                                    && (thinfactor == 1.0 || rng.sample(randdist))
+                                {
+                                    records.push(crate::io::xyz::XyzRecord {
+                                        x: pt_x,
+                                        y: pt_y,
+                                        z: (pt_z + zoff) as f32,
+                                        classification: pt_classification,
+                                        number_of_returns: pt_number_of_returns,
+                                        return_number: pt_return_number,
+                                        ..Default::default()
+                                    });
+                                }
+                            }
+
+                            // get or create the writer for this file
+                            let writer = match writers.entry(to_i) {
+                                Entry::Occupied(e) => e.into_mut(),
+                                Entry::Vacant(e) => {
+                                    let outfile = &to_file.staging_path;
+                                    println!("Creating writer for tile {to_i:?} at {outfile:?}");
+                                    let writer = XyzInternalWriter::new(
+                                        fs.create(outfile)
+                                            .context("Could not create output file")?,
+                                    );
+                                    e.insert(writer)
+                                }
+                            };
+
+                            // write all at once
+                            writer
+                                .write_records(&records)
+                                .expect("Could not write records");
+
+                            // *point_counts.entry(to_i).or_default() += records.len() as u64;
+                        }
+                    }
+                }
+                Operation::Process { tile } => {
+                    println!("Processing tile {tile:?}");
+
+                    // make sure we close the file for this tile
+                    if let Some(mut w) = writers.remove(&tile) {
+                        w.finish().context("Could not finish writer")?;
+                    } else {
+                        log::error!(
+                            "Could not find writer for tile {tile:?} when trying to process it"
+                        );
+                        // TODO: error???
+                        continue;
+                    };
+
+                    // finally post output file for processing!
+                    // TODO: backpressure if the queue is full?
+                    tx.push(tile);
+                }
+            }
+        }
     }
 
     // we are done, close the producer and wait for all threads to exit
@@ -473,116 +616,37 @@ pub fn batch_process(
         savetempfiles,
         scalefactor,
         vege_bitmode,
-        zoff,
-        thinfactor,
         ..
     } = conf;
 
     let Config { batchoutfolder, .. } = conf;
 
-    let mut rng = rand::rng();
-    let randdist = rand::distr::Bernoulli::new(thinfactor).unwrap();
-
-    let options = las::ReaderOptions::default().with_laz_parallelism(if conf.laz_parallel {
-        las::LazParallelism::Yes
-    } else {
-        las::LazParallelism::No
-    });
-
     // take input files from queue until there are no more
     while let Some(laz_path) = rx.pop() {
         let file_to_process = plan.get_input_file(laz_path);
+
         let infile = file_to_process.path.as_path();
         let laz = infile.file_stem().unwrap().to_str().unwrap();
         let outfile = file_to_process.output_path.as_path();
 
         info!("{} -> {}", infile.display(), outfile.display());
 
-        let mut file = fs.open(infile).unwrap();
-        let header = Header::read_from(&mut file).unwrap();
-        let minx = header.min_x;
-        let miny = header.min_y;
-        let maxx = header.max_x;
-        let maxy = header.max_y;
+        let Rect {
+            minx,
+            miny,
+            maxx,
+            maxy,
+        } = file_to_process.header.bounds;
 
-        let minx2 = minx - 127.0;
-        let miny2 = miny - 127.0;
-        let maxx2 = maxx + 127.0;
-        let maxy2 = maxy + 127.0;
-
+        // we need to move the input points from the staging to our own temporary folder
         let tmp_filename = PathBuf::from(format!("temp{thread}.xyz.bin"));
-        debug!("Writing records to {:?}", tmp_filename);
-        let mut writer =
-            XyzInternalWriter::new(fs.create(&tmp_filename).expect("Could not create writer"));
-
-        // read points from all LAZ files that have an overlap with the main tile file
-        for laz_p in plan.input_files() {
-            let laz_p = &laz_p.path;
-            let mut file = fs.open(laz_p).unwrap();
-            let header = Header::read_from(&mut file).unwrap();
-            if header.max_x > minx2
-                && header.min_x < maxx2
-                && header.max_y > miny2
-                && header.min_y < maxy2
-            {
-                let mut reader =
-                    Reader::with_options(fs.open(laz_p).expect("Could not open file"), options)
-                        .expect("Could not create reader");
-
-                let mut records = Vec::with_capacity(LAZ_BUFFER_SIZE);
-                let mut pd = PointDataBuilder::new().for_header(reader.header()).build();
-
-                loop {
-                    let n = reader
-                        .fill_points(LAZ_BUFFER_SIZE as u64, &mut pd)
-                        .expect("could not read LAZ points");
-                    if n == 0 {
-                        break;
-                    }
-
-                    // convert all read points to records
-                    records.clear();
-                    for (
-                        pt_x,
-                        pt_y,
-                        pt_z,
-                        pt_classification,
-                        pt_number_of_returns,
-                        pt_return_number,
-                    ) in izip!(
-                        pd.x(),
-                        pd.y(),
-                        pd.z(),
-                        pd.classification(),
-                        pd.number_of_returns(),
-                        pd.return_number()
-                    ) {
-                        if pt_x > minx2
-                            && pt_x < maxx2
-                            && pt_y > miny2
-                            && pt_y < maxy2
-                            && (thinfactor == 1.0 || rng.sample(randdist))
-                        {
-                            records.push(crate::io::xyz::XyzRecord {
-                                x: pt_x,
-                                y: pt_y,
-                                z: (pt_z + zoff) as f32,
-                                classification: pt_classification,
-                                number_of_returns: pt_number_of_returns,
-                                return_number: pt_return_number,
-                                ..Default::default()
-                            });
-                        }
-                    }
-
-                    // write all at once
-                    writer
-                        .write_records(&records)
-                        .expect("Could not write records");
-                }
-            }
-        }
-        writer.finish().expect("Unable to finish writing");
+        debug!(
+            "Moving input file {} -> {}",
+            file_to_process.staging_path.display(),
+            tmp_filename.display()
+        );
+        fs.rename(&file_to_process.staging_path, &tmp_filename)
+            .expect("Could not move file to temporary folder");
 
         let tmpfolder = PathBuf::from(format!("temp{thread}"));
 

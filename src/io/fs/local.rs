@@ -67,6 +67,11 @@ impl FileSystem for LocalFileSystem {
         Ok(())
     }
 
+    fn rename(&self, from: impl AsRef<Path>, to: impl AsRef<Path>) -> Result<(), io::Error> {
+        std::fs::rename(from, to)?;
+        Ok(())
+    }
+
     fn extract_zip(
         &self,
         archive: impl AsRef<Path>,
