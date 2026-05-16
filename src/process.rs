@@ -75,6 +75,11 @@ pub fn launch_threads<F: FileSystem + Send + Clone + 'static>(
     .context("creating plan")?;
     drop(timing);
 
+    if plan.files_to_process().is_empty() {
+        info!("No files to process, exiting");
+        return Ok(());
+    }
+
     let plan = Arc::new(plan);
 
     // make sure the output directory exists
@@ -109,7 +114,8 @@ pub fn launch_threads<F: FileSystem + Send + Clone + 'static>(
         handles.push(handle);
     }
 
-    let mut planner = plan.naive_planner();
+    // let mut planner = plan.naive_planner();
+    let mut planner = plan.extract_once_planner();
 
     let mut writers: HashMap<InputFileIndex, XyzInternalWriter<_>> = HashMap::default();
 

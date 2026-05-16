@@ -28,7 +28,7 @@ pub struct InputFile {
     pub header: Header,
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct InputFileIndex(usize);
 
 impl Plan {
@@ -120,6 +120,9 @@ impl Plan {
 
     pub fn naive_planner(&self) -> Box<dyn Planner> {
         Box::new(NaivePlanner::new(self.mapping.clone()))
+    }
+    pub fn extract_once_planner(&self) -> Box<dyn Planner> {
+        Box::new(ExtractOncePlanner::new(self.mapping.clone()))
     }
 }
 
@@ -232,6 +235,90 @@ impl Planner for NaivePlanner {
         Some(ops)
     }
 }
+
+struct ExtractOncePlanner {
+    mapping: HashMap<InputFileIndex, HashSet<InputFileIndex>>,
+}
+
+impl ExtractOncePlanner {
+    fn new(mut mapping: HashMap<InputFileIndex, HashSet<InputFileIndex>>) -> Self {
+        // for the logic we need every
+
+        for (key, value) in mapping.iter_mut() {
+            // also include the tile itself as a dependency, since we also need to extract it to
+            // itself in order to process it
+            value.insert(*key);
+        }
+        Self { mapping }
+    }
+}
+impl Planner for ExtractOncePlanner {
+    fn next_operation(&mut self) -> Option<Vec<Operation>> {
+        // take the file with lowest number of dependencies (or just the first one if there are multiple)
+        let Some((&i, deps)) = self.mapping.iter().min_by_key(|(_, deps)| deps.len()) else {
+            return None;
+        };
+
+        // // TODO: we could sort by fewest amount of total points to process as well...
+        // let n_points_total = mapping
+        //     .iter()
+        //     .map(|(i, deps)| {
+        //         headers[*i].n_points as u64
+        //             + deps
+        //                 .iter()
+        //                 .map(|i| headers[*i].n_points as u64)
+        //                 .sum::<u64>()
+        //     })
+        //     .collect::<Vec<_>>();
+        //
+        // println!("n_points_total: {n_points_total:?}");
+        //
+        // let Some((i, _)) = n_points_total
+        //     .iter()
+        //     .enumerate()
+        //     .min_by_key(|(_, count)| **count)
+        // else {
+        //     warn!("Could not find lowest n_points file");
+        //     break;
+        // };
+
+        // mapping is tile -> who should extract to _me_ for me to be able to process
+
+        // construct operations to perform:
+        let mut ops = Vec::new();
+
+        // clone to avoid borrowing issues
+        let deps = deps.clone();
+
+        // first extract all our dependencies to the ones that depend on them (including the tile itself)
+        for dep in deps {
+            let mut to = Vec::new();
+
+            // we need to extract from dep to everyone that depends on dep
+            for (j, tile) in self.mapping.iter_mut() {
+                // depends on dep? (also remove if exists)
+                if tile.remove(&dep) {
+                    // yes - we should extract into this one
+                    to.push(*j);
+                }
+            }
+
+            ops.push(Operation::Extract { from: dep, to });
+        }
+
+        assert!(
+            self.mapping.get(&i).unwrap().is_empty(),
+            "All dependencies should have been processed by now"
+        );
+
+        // now we can process the tile
+        self.mapping.remove(&i);
+        ops.push(Operation::Process { tile: i });
+
+        Some(ops)
+    }
+}
+
 /// A simple rectangle struct to represent a rectangle in 2D space.
 #[derive(Debug, Clone)]
 pub struct Rect {
@@ -272,5 +359,107 @@ impl Rect {
     /// Check if point is within the rectangle (excluding the boundary).
     pub fn contains(&self, x: f64, y: f64) -> bool {
         x > self.minx && x < self.maxx && y > self.miny && y < self.maxy
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct OperationSummary {
+        extract_counts: HashMap<(InputFileIndex, InputFileIndex), u32>,
+        processed_tiles: HashMap<InputFileIndex, InputFileIndex>,
+    }
+
+    fn convert(
+        mapping: HashMap<usize, HashSet<usize>>,
+    ) -> HashMap<InputFileIndex, HashSet<InputFileIndex>> {
+        mapping
+            .into_iter()
+            .map(|(k, v)| {
+                (
+                    InputFileIndex(k),
+                    v.into_iter().map(InputFileIndex).collect(),
+                )
+            })
+            .collect()
+    }
+
+    fn summarize_operations(mut planner: impl Planner) -> OperationSummary {
+        // keep track of how many times we extract from each tile to each tile
+        let mut extract_counts: HashMap<(InputFileIndex, InputFileIndex), u32> = HashMap::default();
+        let mut processed_tiles: HashMap<InputFileIndex, InputFileIndex> = HashMap::default();
+        while let Some(next_ops) = planner.next_operation() {
+            for op in next_ops {
+                match op {
+                    Operation::Extract { from, to } => {
+                        for to_i in to {
+                            *extract_counts.entry((from, to_i)).or_default() += 1;
+                        }
+                    }
+                    Operation::Process { tile } => {
+                        processed_tiles.entry(tile).or_default().0 += 1;
+                    }
+                }
+            }
+        }
+
+        OperationSummary {
+            extract_counts,
+            processed_tiles,
+        }
+    }
+
+    #[test]
+    fn test_planning_single() {
+        let mapping = HashMap::from_iter([(0, HashSet::default())]);
+        let mapping = convert(mapping);
+
+        let ops1 = summarize_operations(NaivePlanner::new(mapping.clone()));
+        let ops2 = summarize_operations(ExtractOncePlanner::new(mapping));
+        assert_eq!(ops1, ops2);
+    }
+
+    #[test]
+    fn test_planning_1() {
+        let mapping = HashMap::from_iter([
+            (0, vec![1, 2].into_iter().collect()),
+            (1, vec![2].into_iter().collect()),
+            (2, HashSet::default()),
+        ]);
+        let mapping = convert(mapping);
+
+        let ops1 = summarize_operations(NaivePlanner::new(mapping.clone()));
+        let ops2 = summarize_operations(ExtractOncePlanner::new(mapping));
+        assert_eq!(ops1, ops2);
+    }
+
+    #[test]
+    fn test_planning_big() {
+        // {1: {0, 3, 5, 6, 2}, 6: {7, 5, 1, 8, 2}, 4: {9, 7, 3, 5, 11}, 0: {5, 3, 1}, 8: {11, 7, 5, 12, 6}, 12: {11, 7, 14, 8, 13}, 11: {7, 14, 10, 13, 9, 12, 8, 4}, 14: {11, 13, 12}, 10: {9, 11, 13}, 5: {0, 7, 3, 6, 2, 1, 8, 4}, 3: {0, 7, 5, 1, 4}, 9: {11, 7, 10, 4, 13}, 7: {11, 3, 6, 9, 5, 12, 8, 4}, 2: {6, 5, 1}, 13: {9, 11, 12, 10, 14}}
+
+        let mapping = HashMap::from_iter([
+            (0, vec![5, 3, 1].into_iter().collect()),
+            (1, vec![0, 3, 5, 6, 2].into_iter().collect()),
+            (2, vec![6, 5, 1].into_iter().collect()),
+            (3, vec![0, 7, 5, 1, 4].into_iter().collect()),
+            (4, vec![9, 7, 3, 5, 11].into_iter().collect()),
+            (5, vec![0, 7, 3, 6, 2, 1, 8, 4].into_iter().collect()),
+            (6, vec![7, 5, 1].into_iter().collect()),
+            (7, vec![11, 3, 6, 9, 5, 12, 8, 4].into_iter().collect()),
+            (8, vec![11, 7, 5, 12, 6].into_iter().collect()),
+            (9, vec![11, 7, 10, 4, 13].into_iter().collect()),
+            (10, vec![9, 11, 13].into_iter().collect()),
+            (11, vec![7, 14, 10, 13, 9, 12, 8, 4].into_iter().collect()),
+            (12, vec![11, 7, 14, 8, 13].into_iter().collect()),
+            (13, vec![9, 11, 12, 10, 14].into_iter().collect()),
+            (14, vec![11, 13, 12].into_iter().collect()),
+        ]);
+        let mapping = convert(mapping);
+
+        let ops1 = summarize_operations(NaivePlanner::new(mapping.clone()));
+        let ops2 = summarize_operations(ExtractOncePlanner::new(mapping));
+        assert_eq!(ops1, ops2);
     }
 }
