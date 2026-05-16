@@ -388,7 +388,7 @@ fn main() {
                 fs.load_from_disk(path, path).unwrap();
             }
 
-            pullauta::process::launch_threads(fs.clone(), config.clone(), &zip_files);
+            pullauta::process::launch_threads(fs.clone(), config.clone(), &zip_files).unwrap();
 
             // copy the output files back to disk
             std::fs::create_dir_all(&config.batchoutfolder).unwrap();
@@ -397,7 +397,7 @@ fn main() {
                 fs.save_to_disk(&path, &path).unwrap();
             }
         } else {
-            pullauta::process::launch_threads(fs, config, &zip_files);
+            pullauta::process::launch_threads(fs, config, &zip_files).unwrap();
         }
         return;
     }

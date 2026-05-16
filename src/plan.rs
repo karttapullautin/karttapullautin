@@ -77,4 +77,3 @@ impl Plan {
         &self.files_to_process
     }
 }
-

@@ -88,8 +88,8 @@ pub fn launch_threads<F: FileSystem + Send + Clone + 'static>(
 
     // we can now start sending the files to process to the threads
     for laz in plan.files_to_process() {
-        // TODO: send only the ids of the files
-        tx.push(laz.clone());
+        // send only the ids of the files
+        tx.push(*laz);
     }
 
     // we are done, close the producer and wait for all threads to exit
@@ -697,7 +697,7 @@ pub fn batch_process(
             )
             .expect("could not save output png");
 
-            fs.copy(format!("pullautus{thread}.png"), &outfile)
+            fs.copy(format!("pullautus{thread}.png"), outfile)
                 .expect("Could not copy file to output folder");
             fs.copy(
                 format!("pullautus{thread}.pgw"),
