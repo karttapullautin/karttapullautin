@@ -1,7 +1,9 @@
 use std::{
+    collections::VecDeque,
     fmt::Debug,
     io::{self, BufRead},
     path::Path,
+    sync::{Arc, Condvar, Mutex},
     time::Instant,
 };
 
@@ -151,4 +153,149 @@ pub fn write_object<W: std::io::Write, O: serde::Serialize>(
     )
     .context("serializing to file")?;
     Ok(())
+}
+
+/// A simple Single-Producer-Multiple-Consumer queue for passing work to processing threads.
+pub fn make_queue<T>() -> (Producer<T>, Consumer<T>) {
+    let inner = Inner {
+        inner: Mutex::new(InnerMut {
+            queue: VecDeque::new(),
+            has_closed: false,
+        }),
+        var_has_items: Condvar::new(),
+    };
+    let inner = Arc::new(inner);
+
+    let producer = Producer {
+        inner: Arc::clone(&inner),
+    };
+    let consumer = Consumer { inner };
+    (producer, consumer)
+}
+
+struct Inner<T> {
+    inner: Mutex<InnerMut<T>>,
+    var_has_items: Condvar,
+}
+
+struct InnerMut<T> {
+    queue: VecDeque<T>,
+    has_closed: bool,
+}
+
+pub struct Producer<T> {
+    inner: Arc<Inner<T>>,
+}
+
+impl<T> Producer<T> {
+    /// Pushes an item to the queue. Returns `Err` if the queue has been closed.
+    pub fn push(&self, item: T) {
+        let mut inner = self.inner.inner.lock().unwrap();
+        inner.queue.push_back(item);
+        self.inner.var_has_items.notify_one();
+    }
+}
+
+impl<T> Drop for Producer<T> {
+    fn drop(&mut self) {
+        let mut inner = self.inner.inner.lock().unwrap();
+        inner.has_closed = true;
+        self.inner.var_has_items.notify_all();
+    }
+}
+
+#[derive(Clone)]
+pub struct Consumer<T> {
+    inner: Arc<Inner<T>>,
+}
+
+impl<T> Consumer<T> {
+    /// Pops an item from the queue. Returns `None` if the queue has been closed and is empty.
+    pub fn pop(&self) -> Option<T> {
+        let mut inner = self.inner.inner.lock().unwrap();
+        loop {
+            if let Some(item) = inner.queue.pop_front() {
+                return Some(item);
+            }
+            if inner.has_closed {
+                return None;
+            }
+            inner = self.inner.var_has_items.wait(inner).unwrap();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::thread;
+
+    #[test]
+    fn test_queue() {
+        let (producer, consumer) = make_queue();
+
+        let producer_thread = thread::spawn(move || {
+            for i in 0..10 {
+                producer.push(i);
+            }
+        });
+
+        let consumer_thread = thread::spawn(move || {
+            let mut items = Vec::new();
+            while let Some(item) = consumer.pop() {
+                items.push(item);
+            }
+            items
+        });
+
+        producer_thread.join().unwrap();
+        let items = consumer_thread.join().unwrap();
+        assert_eq!(items, (0..10).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_multiple_consumer() {
+        let (producer, consumer) = make_queue();
+
+        let producer_thread = thread::spawn(move || {
+            for i in 0..10 {
+                producer.push(i);
+            }
+        });
+
+        let consumer_thread1 = thread::spawn({
+            let consumer = consumer.clone();
+            move || {
+                let mut items = Vec::new();
+                while let Some(item) = consumer.pop() {
+                    items.push(item);
+                }
+                items
+            }
+        });
+
+        let consumer_thread2 = thread::spawn({
+            let consumer = consumer.clone();
+            move || {
+                let mut items = Vec::new();
+                while let Some(item) = consumer.pop() {
+                    items.push(item);
+                }
+                items
+            }
+        });
+
+        producer_thread.join().unwrap();
+        let items1 = consumer_thread1.join().unwrap();
+        let items2 = consumer_thread2.join().unwrap();
+
+        assert_eq!(items1.len() + items2.len(), 10);
+        assert_eq!(
+            [items1, items2]
+                .concat()
+                .into_iter()
+                .collect::<std::collections::HashSet<_>>(),
+            (0..10).collect::<std::collections::HashSet<_>>()
+        );
+    }
 }

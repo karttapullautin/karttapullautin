@@ -13,6 +13,7 @@ pub mod io;
 pub mod knolls;
 pub mod merge;
 pub mod palette;
+mod plan;
 pub mod process;
 pub mod render;
 pub mod util;
