@@ -486,7 +486,7 @@ pub fn batch_process(
     while let Some(laz_path) = rx.pop() {
         let file_to_process = plan.get_input_file(laz_path);
         let infile = file_to_process.path.as_path();
-        let laz = infile.file_name().unwrap().to_str().unwrap();
+        let laz = infile.file_stem().unwrap().to_str().unwrap();
         let outfile = file_to_process.output_path.as_path();
 
         info!("{} -> {}", infile.display(), outfile.display());
