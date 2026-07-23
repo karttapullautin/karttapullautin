@@ -1,6 +1,6 @@
 use anyhow::Context;
 use image::{GrayImage, Luma, Rgb, RgbImage, Rgba, RgbaImage};
-use las::{Reader, raw::Header, Point};
+use las::{Point, Reader, raw::Header};
 use log::debug;
 use log::info;
 use rand::prelude::*;
@@ -255,7 +255,7 @@ pub fn process_tile(
         loop {
             let pd = reader.read_points(LAZ_BUFFER_SIZE as u64).unwrap();
 
-            if pd.len() == 0 {
+            if pd.is_empty() {
                 break;
             }
 
@@ -523,9 +523,11 @@ pub fn batch_process(
 
                 let mut records = Vec::with_capacity(LAZ_BUFFER_SIZE);
                 loop {
-                    let pd = reader.read_points(LAZ_BUFFER_SIZE as u64).expect("could not read LAZ points");
+                    let pd = reader
+                        .read_points(LAZ_BUFFER_SIZE as u64)
+                        .expect("could not read LAZ points");
 
-                    if pd.len() == 0 {
+                    if pd.is_empty() {
                         break;
                     }
 
