@@ -1,6 +1,6 @@
 use anyhow::Context;
 use image::{GrayImage, Luma, Rgb, RgbImage, Rgba, RgbaImage};
-use las::{Point, Reader, raw::Header};
+use las::{Point, PointDataBuilder, Reader, raw::Header};
 use log::debug;
 use log::info;
 use rand::prelude::*;
@@ -252,10 +252,11 @@ pub fn process_tile(
             XyzInternalWriter::new(fs.create(&target_file).expect("Could not create writer"));
 
         let mut records = Vec::with_capacity(LAZ_BUFFER_SIZE);
+        let mut pd = PointDataBuilder::new().for_header(reader.header()).build();
         loop {
-            let pd = reader.read_points(LAZ_BUFFER_SIZE as u64).unwrap();
+            let n = reader.fill_points(LAZ_BUFFER_SIZE as u64, &mut pd).unwrap();
 
-            if pd.is_empty() {
+            if n == 0 {
                 break;
             }
 
@@ -522,12 +523,13 @@ pub fn batch_process(
                         .expect("Could not create reader");
 
                 let mut records = Vec::with_capacity(LAZ_BUFFER_SIZE);
-                loop {
-                    let pd = reader
-                        .read_points(LAZ_BUFFER_SIZE as u64)
-                        .expect("could not read LAZ points");
+                let mut pd = PointDataBuilder::new().for_header(reader.header()).build();
 
-                    if pd.is_empty() {
+                loop {
+                    let n = reader
+                        .fill_points(LAZ_BUFFER_SIZE as u64, &mut pd)
+                        .expect("could not read LAZ points");
+                    if n == 0 {
                         break;
                     }
 
