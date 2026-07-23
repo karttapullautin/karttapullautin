@@ -1,6 +1,6 @@
 use anyhow::Context;
 use image::{GrayImage, Luma, Rgb, RgbImage, Rgba, RgbaImage};
-use las::{Reader, raw::Header};
+use las::{Reader, raw::Header, Point};
 use log::debug;
 use log::info;
 use rand::prelude::*;
@@ -251,19 +251,18 @@ pub fn process_tile(
         let mut writer =
             XyzInternalWriter::new(fs.create(&target_file).expect("Could not create writer"));
 
-        let mut points = Vec::with_capacity(LAZ_BUFFER_SIZE);
         let mut records = Vec::with_capacity(LAZ_BUFFER_SIZE);
         loop {
-            points.clear();
-            let n = reader.read_points_into(LAZ_BUFFER_SIZE as u64, &mut points)?;
+            let pd = reader.read_points(LAZ_BUFFER_SIZE as u64).unwrap();
 
-            if n == 0 {
+            if pd.len() == 0 {
                 break;
             }
 
             // convert all read points to records
             records.clear();
-            for pt in &points {
+            for wrapped_point in pd.points() {
+                let pt = wrapped_point.unwrap();
                 if thinfactor == 1.0 || rng.sample(randdist) {
                     records.push(crate::io::xyz::XyzRecord {
                         x: pt.x * xfactor,
@@ -522,21 +521,18 @@ pub fn batch_process(
                     Reader::with_options(fs.open(laz_p).expect("Could not open file"), options)
                         .expect("Could not create reader");
 
-                let mut points = Vec::with_capacity(LAZ_BUFFER_SIZE);
                 let mut records = Vec::with_capacity(LAZ_BUFFER_SIZE);
                 loop {
-                    points.clear();
-                    let n = reader
-                        .read_points_into(LAZ_BUFFER_SIZE as u64, &mut points)
-                        .expect("could not read LAZ points");
+                    let pd = reader.read_points(LAZ_BUFFER_SIZE as u64).expect("could not read LAZ points");
 
-                    if n == 0 {
+                    if pd.len() == 0 {
                         break;
                     }
 
                     // convert all read points to records
                     records.clear();
-                    for pt in &points {
+                    for wrapped_point in pd.points() {
+                        let pt: Point = wrapped_point.unwrap();
                         if pt.x > minx2
                             && pt.x < maxx2
                             && pt.y > miny2

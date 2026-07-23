@@ -937,9 +937,9 @@ dependencies = [
 
 [[package]]
 name = "las"
-version = "0.9.10"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "501d35a98a0bf1e7d30cd61899741af22f853110021be78175926cc870a39dfd"
+checksum = "62f1a1abaa9217530731d35a08a5e37828b2f6158196cdd61252c017bbdace95"
 dependencies = [
  "byteorder",
  "chrono",
