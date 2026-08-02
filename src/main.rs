@@ -8,6 +8,10 @@ use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 fn main() {
     // setup and configure logging, default to INFO when RUST_LOG is not set
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
