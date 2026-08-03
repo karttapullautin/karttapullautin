@@ -1,6 +1,7 @@
 use anyhow::Context;
 use image::{GrayImage, Luma, Rgb, RgbImage, Rgba, RgbaImage};
-use las::{Point, PointDataBuilder, Reader, raw::Header};
+use itertools::izip;
+use las::{PointDataBuilder, Reader, raw::Header};
 use log::debug;
 use log::info;
 use rand::prelude::*;
@@ -262,16 +263,22 @@ pub fn process_tile(
 
             // convert all read points to records
             records.clear();
-            for wrapped_point in pd.points() {
-                let pt = wrapped_point.unwrap();
+            for (pt_x, pt_y, pt_z, pt_classification, pt_number_of_returns, pt_return_number) in izip!(
+                pd.x(),
+                pd.y(),
+                pd.z(),
+                pd.classification(),
+                pd.number_of_returns(),
+                pd.return_number()
+            ) {
                 if thinfactor == 1.0 || rng.sample(randdist) {
                     records.push(crate::io::xyz::XyzRecord {
-                        x: pt.x * xfactor,
-                        y: pt.y * yfactor,
-                        z: (pt.z * zfactor + zoff) as f32,
-                        classification: u8::from(pt.classification),
-                        number_of_returns: pt.number_of_returns,
-                        return_number: pt.return_number,
+                        x: pt_x * xfactor,
+                        y: pt_y * yfactor,
+                        z: (pt_z * zfactor + zoff) as f32,
+                        classification: pt_classification,
+                        number_of_returns: pt_number_of_returns,
+                        return_number: pt_return_number,
                         ..Default::default()
                     });
                 }
@@ -535,21 +542,34 @@ pub fn batch_process(
 
                     // convert all read points to records
                     records.clear();
-                    for wrapped_point in pd.points() {
-                        let pt: Point = wrapped_point.unwrap();
-                        if pt.x > minx2
-                            && pt.x < maxx2
-                            && pt.y > miny2
-                            && pt.y < maxy2
+                    for (
+                        pt_x,
+                        pt_y,
+                        pt_z,
+                        pt_classification,
+                        pt_number_of_returns,
+                        pt_return_number,
+                    ) in izip!(
+                        pd.x(),
+                        pd.y(),
+                        pd.z(),
+                        pd.classification(),
+                        pd.number_of_returns(),
+                        pd.return_number()
+                    ) {
+                        if pt_x > minx2
+                            && pt_x < maxx2
+                            && pt_y > miny2
+                            && pt_y < maxy2
                             && (thinfactor == 1.0 || rng.sample(randdist))
                         {
                             records.push(crate::io::xyz::XyzRecord {
-                                x: pt.x,
-                                y: pt.y,
-                                z: (pt.z + zoff) as f32,
-                                classification: u8::from(pt.classification),
-                                number_of_returns: pt.number_of_returns,
-                                return_number: pt.return_number,
+                                x: pt_x,
+                                y: pt_y,
+                                z: (pt_z + zoff) as f32,
+                                classification: pt_classification,
+                                number_of_returns: pt_number_of_returns,
+                                return_number: pt_return_number,
                                 ..Default::default()
                             });
                         }
