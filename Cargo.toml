@@ -15,6 +15,12 @@ publish = false
 default = ["shapefile"]
 shapefile = ["dep:tiny-skia", "dep:shapefile", "dep:zip"]
 
+# Slower to compile, faster to run. Combine with RUSTFLAGS="-C target-cpu=native"
+# for a build tuned to the local machine.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
 [dependencies]
 image = { version = "0.25", default-features = false, features = [
 	"rayon",
@@ -48,6 +54,7 @@ env_logger = "0.11"
 
 serde = { version = "1", default-features = false, features = ["derive"] }
 anyhow = "1"
+mimalloc = { version = "0.1", default-features = false }
 bincode-next = { version = "2.1", default-features = false, features = ["std", "serde"] }
 
 bytemuck = { version = "1.23", features = ["derive"] }
