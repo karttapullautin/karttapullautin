@@ -55,6 +55,12 @@ pub trait FileSystem: std::fmt::Debug {
     ) -> Result<image::DynamicImage, image::error::ImageError> {
         let mut reader = image::ImageReader::new(self.open(path).expect("Could not open file"));
         reader.set_format(image::ImageFormat::Png);
+        // The `image` crate defaults to a 512 MiB allocation ceiling when decoding, which
+        // is not a memory measurement — it is a guard against hostile files. Every PNG we
+        // open here is one this process just wrote, and the batch merge reads whole
+        // rendered tiles: a 25 km² map tripped it as `InsufficientMemory` on a machine
+        // with tens of gigabytes free, after the render had already completed.
+        reader.limits(image::Limits::no_limits());
         reader.decode()
     }
 
