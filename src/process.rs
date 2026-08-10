@@ -153,8 +153,6 @@ pub fn launch_threads<F: FileSystem + Send + Clone + 'static>(
                     let mut pd = PointDataBuilder::new().for_header(reader.header()).build();
 
                     loop {
-                        // points.clear();
-                        // PD.clear?
                         let n = reader
                             .fill_points(LAZ_BUFFER_SIZE as u64, &mut pd)
                             .expect("could not read LAZ points");
@@ -164,7 +162,6 @@ pub fn launch_threads<F: FileSystem + Send + Clone + 'static>(
 
                         // for each dependency, we need to check all points against their boundary
                         // to know if they should be included in the output.
-
                         for &to_i in &to {
                             let to_file = plan.get_input_file(to_i);
                             let padded_bounds = to_file.header.bounds.expand(padding);

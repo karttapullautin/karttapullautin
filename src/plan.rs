@@ -205,9 +205,7 @@ impl NaivePlanner {
 impl Planner for NaivePlanner {
     fn next_operation(&mut self) -> Option<Vec<Operation>> {
         // take the first key and process it
-        let Some(&i) = self.mapping.keys().next() else {
-            return None;
-        };
+        let &i = self.mapping.keys().next()?;
 
         // construct operations to perform:
         let mut ops = Vec::new();
@@ -255,9 +253,7 @@ impl ExtractOncePlanner {
 impl Planner for ExtractOncePlanner {
     fn next_operation(&mut self) -> Option<Vec<Operation>> {
         // take the file with lowest number of dependencies (or just the first one if there are multiple)
-        let Some((&i, deps)) = self.mapping.iter().min_by_key(|(_, deps)| deps.len()) else {
-            return None;
-        };
+        let (&i, deps) = self.mapping.iter().min_by_key(|(_, deps)| deps.len())?;
 
         // // TODO: we could sort by fewest amount of total points to process as well...
         // let n_points_total = mapping
