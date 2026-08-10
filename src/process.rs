@@ -93,7 +93,7 @@ pub fn launch_threads<F: FileSystem + Send + Clone + 'static>(
     // Bound it based on the number of threads so that we cannot have too many files converted
     // waiting for processing at a time.
     // TODO: make it configurable?
-    let (tx, rx) = crate::util::make_bounded_queue::<InputFileIndex>(num_threads / 2);
+    let (tx, rx) = crate::util::make_bounded_queue::<InputFileIndex>((num_threads / 2).max(1));
 
     // do the processing
     let mut handles: Vec<thread::JoinHandle<()>> = Vec::with_capacity(num_threads);
