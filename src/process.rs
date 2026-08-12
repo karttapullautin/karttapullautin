@@ -194,7 +194,7 @@ pub fn process_tile(
 
         info!("Converting points from .xyz to internal binary format");
 
-        debug!("Writing records to {:?}", &target_file);
+        debug!("Writing records to {:?}", target_file);
         let mut writer =
             XyzInternalWriter::new(fs.create(&target_file).expect("Could not create writer"));
         read_lines_no_alloc(fs, input_file, |line| {
@@ -248,7 +248,7 @@ pub fn process_tile(
             Reader::with_options(fs.open(input_file).expect("Could not open file"), options)
                 .expect("Could not create reader");
 
-        debug!("Writing records to {:?}", &target_file);
+        debug!("Writing records to {:?}", target_file);
         let mut writer =
             XyzInternalWriter::new(fs.create(&target_file).expect("Could not create writer"));
 
@@ -511,7 +511,7 @@ pub fn batch_process(
         let maxy2 = maxy + 127.0;
 
         let tmp_filename = PathBuf::from(format!("temp{thread}.xyz.bin"));
-        debug!("Writing records to {:?}", &tmp_filename);
+        debug!("Writing records to {:?}", tmp_filename);
         let mut writer =
             XyzInternalWriter::new(fs.create(&tmp_filename).expect("Could not create writer"));
 

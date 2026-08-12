@@ -134,10 +134,10 @@ pub fn render(
     let mut shp_files: Vec<PathBuf> = Vec::new();
 
     for path in fs.list(&shapetmpfolder).unwrap() {
-        if let Some(extension) = path.extension() {
-            if extension == "shp" {
-                shp_files.push(path);
-            }
+        if let Some(extension) = path.extension()
+            && extension == "shp"
+        {
+            shp_files.push(path);
         }
     }
 

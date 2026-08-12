@@ -24,7 +24,7 @@ jobs:
       with:
         fetch-depth: 2
 
-    - uses: dtolnay/rust-toolchain@1.88
+    - uses: dtolnay/rust-toolchain@1.97
     - uses: Swatinem/rust-cache@v2
 
     - name: Download LAZ file
@@ -120,7 +120,7 @@ jobs:
       with:
         fetch-depth: 2
 
-    - uses: dtolnay/rust-toolchain@1.88
+    - uses: dtolnay/rust-toolchain@1.97
     - uses: Swatinem/rust-cache@v2
 
     - name: Download LAZ file
