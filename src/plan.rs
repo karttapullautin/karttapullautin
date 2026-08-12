@@ -29,10 +29,10 @@ impl Plan {
         // list all the files that we have to process
         let mut laz_files: Vec<PathBuf> = Vec::new();
         for path in fs.list(input_folder).context("listing input files")? {
-            if let Some(extension) = path.extension() {
-                if extension == "laz" || extension == "las" {
-                    laz_files.push(path);
-                }
+            if let Some(extension) = path.extension()
+                && (extension == "laz" || extension == "las")
+            {
+                laz_files.push(path);
             }
         }
 

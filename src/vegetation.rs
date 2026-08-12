@@ -83,7 +83,7 @@ pub fn makevege(
     let mut reader = XyzInternalReader::new(fs.open(&xyz_file_in)?)?;
     while let Some(chunk) = reader.next_chunk()? {
         for r in chunk {
-            if vegethin == 0 || ((i + 1) as u32) % vegethin == 0 {
+            if vegethin == 0 || ((i + 1) as u32).is_multiple_of(vegethin) {
                 let x: f64 = r.x;
                 let y: f64 = r.y;
                 let h: f64 = r.z as f64;
@@ -139,7 +139,7 @@ pub fn makevege(
     let mut reader = XyzInternalReader::new(fs.open(&xyz_file_in)?)?;
     while let Some(chunk) = reader.next_chunk()? {
         for r in chunk {
-            if vegethin == 0 || ((i + 1) as u32) % vegethin == 0 {
+            if vegethin == 0 || ((i + 1) as u32).is_multiple_of(vegethin) {
                 let x: f64 = r.x;
                 let y: f64 = r.y;
                 let h: f64 = r.z as f64 - zoffset;

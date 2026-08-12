@@ -366,10 +366,10 @@ fn main() {
 
         let mut zip_files: Vec<String> = Vec::new();
         for path in fs.list(lazfolder).unwrap() {
-            if let Some(extension) = path.extension() {
-                if extension == "zip" {
-                    zip_files.push(String::from(path.to_str().unwrap()));
-                }
+            if let Some(extension) = path.extension()
+                && extension == "zip"
+            {
+                zip_files.push(String::from(path.to_str().unwrap()));
             }
         }
 
