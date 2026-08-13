@@ -34,7 +34,7 @@ imageproc = { version = "0.27", default-features = false, features = [
 	"rayon",
 ] }
 
-las = { version = "0.10", features = ["laz", "laz-parallel"] }
+las = { version = "0.11", features = ["laz", "laz-parallel"] }
 rand = "0.10"
 rust-ini = "0.21"
 rustc-hash = "2.0"
