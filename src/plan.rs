@@ -133,21 +133,23 @@ fn mapping_from_headers(
 ) -> HashMap<InputFileIndex, HashSet<InputFileIndex>> {
     let mut mapping: HashMap<InputFileIndex, HashSet<InputFileIndex>> = HashMap::default();
 
-    // this is now O(n^2) but we expect n to be small, and it is simpler to implement than a spatial index
+    // This is now O(n^2) but we expect n to be small, and it is simpler to
+    // implement than a spatial index. Check each pair only once because the
+    // overlap relation is symmetric when both bounds use the same padding.
     for (i, ih) in headers.iter().enumerate() {
+        mapping.entry(InputFileIndex(i)).or_default();
+
         let padded_bounds = ih.header.bounds.expand(padding);
-
-        let e = mapping.entry(InputFileIndex(i)).or_default();
-
-        for (j, jh) in headers.iter().enumerate() {
-            // skip self
-            if i == j {
-                continue;
-            }
-
-            // if overlap, there is a dependency (in both directions!)
+        for (j, jh) in headers.iter().enumerate().skip(i + 1) {
             if jh.header.bounds.overlaps(&padded_bounds) {
-                e.insert(InputFileIndex(j));
+                mapping
+                    .entry(InputFileIndex(i))
+                    .or_default()
+                    .insert(InputFileIndex(j));
+                mapping
+                    .entry(InputFileIndex(j))
+                    .or_default()
+                    .insert(InputFileIndex(i));
             }
         }
     }
