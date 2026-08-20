@@ -37,7 +37,7 @@ use crate::vegetation;
 
 // compute the number of elements we can buffer for 200MB of memory usage during LAZ -> XyzRecord conversion
 const LAZ_BUFFER_SIZE: usize =
-    200 * 1024 * 1024 / (size_of::<las::Point>() + size_of::<XyzRecord>());
+    400 * 1024 * 1024 / (size_of::<las::Point>() + size_of::<XyzRecord>());
 
 /// Launches threads and coordinates the logic for processing multiple files in parallell.
 /// When it returns, all files have been processed and output files have been generated according to
@@ -114,7 +114,6 @@ pub fn launch_threads<F: FileSystem + Send + Clone + 'static>(
         handles.push(handle);
     }
 
-    // let mut planner = plan.naive_planner();
     let mut planner = plan.extract_once_planner();
 
     let mut writers: HashMap<InputFileIndex, XyzInternalWriter<_>> = HashMap::default();

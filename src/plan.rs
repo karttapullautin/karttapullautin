@@ -137,6 +137,8 @@ fn mapping_from_headers(
     // implement than a spatial index. Check each pair only once because the
     // overlap relation is symmetric when both bounds use the same padding.
     for (i, ih) in headers.iter().enumerate() {
+        // make sure each file is represented in the mapping, even if there
+        // are no neighboring files (eg. if the set is empty)
         mapping.entry(InputFileIndex(i)).or_default();
 
         let padded_bounds = ih.header.bounds.expand(padding);
