@@ -35,9 +35,9 @@ use crate::util::Timing;
 use crate::util::read_lines_no_alloc;
 use crate::vegetation;
 
-// compute the number of elements we can buffer for 200MB of memory usage during LAZ -> XyzRecord conversion
+// compute the number of elements we can buffer for 50MB of memory usage during LAZ -> XyzRecord conversion
 const LAZ_BUFFER_SIZE: usize =
-    400 * 1024 * 1024 / (size_of::<las::Point>() + size_of::<XyzRecord>());
+    50 * 1024 * 1024 / (size_of::<las::Point>() + size_of::<XyzRecord>());
 
 /// Launches threads and coordinates the logic for processing multiple files in parallell.
 /// When it returns, all files have been processed and output files have been generated according to
