@@ -445,6 +445,12 @@ impl FileSystem for MemoryFileSystem {
         Ok(())
     }
 
+    fn rename(&self, from: impl AsRef<Path>, to: impl AsRef<Path>) -> Result<(), io::Error> {
+        self.copy(&from, to)?;
+        self.remove_file(from)?;
+        Ok(())
+    }
+
     fn extract_zip(
         &self,
         archive: impl AsRef<Path>,
