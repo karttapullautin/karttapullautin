@@ -343,6 +343,112 @@ pub fn bindxfmerge(fs: &impl FileSystem, config: &Config) -> anyhow::Result<()> 
     Ok(())
 }
 
+/// The slope-line tick for a depression ring, or `None` when the ring is too small to
+/// carry the symbol.
+///
+/// ISOM 2017-2 (symbol 101) requires at least one slope line on a depression, drawn
+/// perpendicular to the contour and pointing downslope — i.e. into the ring. Its length
+/// is 0.4 OM on the 1:15,000 original, 0.6 mm at the 1:10,000 we render, which is 6 m on
+/// the ground; coordinates here are ground metres. A depression below ISOM's minimum
+/// size (1.1 x 0.7 OM -> 1.65 x 1.05 mm -> 16.5 x 10.5 m) is not drawable as a contour
+/// depression at all — those are the small-depression symbol's job — so it gets no tick.
+///
+/// Direction is decided by testing whether the tick's far end lands INSIDE the ring, not
+/// by aiming at the ring's centroid: a depression ring is often a long crescent, and a
+/// crescent's centroid lies outside it, so the centroid test pointed the tick out of the
+/// depression — the "wrong side" seen on Nyrup Hegn.
+///
+/// Placement then picks, among candidates spread around the ring, the one whose tick end
+/// sits deepest inside — furthest from any part of the ring. That keeps the tick clear of
+/// the contour instead of crossing it where the depression pinches, which is where a
+/// fixed position lands on an elongated ring.
+fn slope_line(el_x: &[f64], el_y: &[f64], h: f64) -> Option<Vec<Point3>> {
+    const LENGTH_M: f64 = 6.0;
+    const MIN_WIDTH_M: f64 = 10.5;
+    const MIN_LENGTH_M: f64 = 16.5;
+    /// Positions tried around the ring; the best-clearance one wins.
+    const CANDIDATES: usize = 12;
+
+    let n = el_x.len();
+    if n < 4 {
+        return None;
+    }
+    let (mut xmin, mut xmax) = (f64::MAX, f64::MIN);
+    let (mut ymin, mut ymax) = (f64::MAX, f64::MIN);
+    for (&x, &y) in el_x.iter().zip(el_y.iter()) {
+        xmin = xmin.min(x);
+        xmax = xmax.max(x);
+        ymin = ymin.min(y);
+        ymax = ymax.max(y);
+    }
+    let (w, hgt) = (xmax - xmin, ymax - ymin);
+    if w.max(hgt) < MIN_LENGTH_M || w.min(hgt) < MIN_WIDTH_M {
+        return None;
+    }
+
+    let mut best: Option<(f64, [f64; 4])> = None;
+    for k in 0..CANDIDATES {
+        let i = k * n / CANDIDATES;
+        let (prev, next) = ((i + n - 1) % n, (i + 1) % n);
+        let (tx, ty) = (el_x[next] - el_x[prev], el_y[next] - el_y[prev]);
+        let len = (tx * tx + ty * ty).sqrt();
+        if len == 0.0 {
+            continue;
+        }
+        // Both perpendiculars; keep whichever ends up inside the ring.
+        for (nx, ny) in [(-ty / len, tx / len), (ty / len, -tx / len)] {
+            let (ex, ey) = (el_x[i] + nx * LENGTH_M, el_y[i] + ny * LENGTH_M);
+            if !point_in_ring(el_x, el_y, ex, ey) {
+                continue;
+            }
+            let clearance = distance_to_ring(el_x, el_y, ex, ey);
+            if best.is_none_or(|(b, _)| clearance > b) {
+                best = Some((clearance, [el_x[i], el_y[i], ex, ey]));
+            }
+        }
+    }
+    let (_, [sx, sy, ex, ey]) = best?;
+    Some(vec![Point3::new(sx, sy, h), Point3::new(ex, ey, h)])
+}
+
+/// Ray casting against the closed ring. Exact for concave shapes, which is the point.
+fn point_in_ring(el_x: &[f64], el_y: &[f64], px: f64, py: f64) -> bool {
+    let n = el_x.len();
+    let mut inside = false;
+    let mut j = n - 1;
+    for i in 0..n {
+        if (el_y[i] > py) != (el_y[j] > py) {
+            let t = (py - el_y[i]) / (el_y[j] - el_y[i]);
+            if px < el_x[i] + t * (el_x[j] - el_x[i]) {
+                inside = !inside;
+            }
+        }
+        j = i;
+    }
+    inside
+}
+
+/// Shortest distance from a point to the ring's segments — the tick's clearance.
+fn distance_to_ring(el_x: &[f64], el_y: &[f64], px: f64, py: f64) -> f64 {
+    let n = el_x.len();
+    let mut best = f64::MAX;
+    for i in 0..n {
+        let j = (i + 1) % n;
+        let (ax, ay) = (el_x[i], el_y[i]);
+        let (bx, by) = (el_x[j], el_y[j]);
+        let (dx, dy) = (bx - ax, by - ay);
+        let l2 = dx * dx + dy * dy;
+        let t = if l2 == 0.0 {
+            0.0
+        } else {
+            (((px - ax) * dx + (py - ay) * dy) / l2).clamp(0.0, 1.0)
+        };
+        let (cx, cy) = (ax + t * dx, ay + t * dy);
+        best = best.min(((px - cx).powi(2) + (py - cy).powi(2)).sqrt());
+    }
+    best
+}
+
 pub fn smoothjoin(
     fs: &impl FileSystem,
     config: &Config,
@@ -927,6 +1033,18 @@ pub fn smoothjoin(
                         .collect(),
                     (layer, h),
                 );
+
+                // ISOM 2017-2, symbol 101: "a depression has to have at least one slope
+                // line". Without one a depression ring is indistinguishable from a knoll
+                // — the reader cannot tell which way the ground goes. KP classified
+                // depressions but never drew the tick, and the vector output then folded
+                // `depression` into plain 101, so the distinction was lost for good.
+                if config.draw_slopelines
+                    && layer.is_depression()
+                    && let Some(tick) = slope_line(&el_x[l], &el_y[l], h)
+                {
+                    out2_lines.push(tick, (Classification::SlopeLine, h));
+                }
             } // -- if not dotkoll
         }
     }

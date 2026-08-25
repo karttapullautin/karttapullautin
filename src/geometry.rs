@@ -334,6 +334,12 @@ pub enum Classification {
     Cliff2,
     Cliff3,
     Cliff4,
+
+    /// The tick drawn inside a depression contour so it reads as a depression rather
+    /// than a knoll. ISOM 2017-2 makes it part of symbol 101 ("a depression has to have
+    /// at least one slope line"), not a symbol of its own, so it carries contour weight
+    /// and maps to 101 downstream. Generated in merge, alongside the ring it belongs to.
+    SlopeLine,
 }
 
 impl Classification {
@@ -365,6 +371,8 @@ impl Classification {
             Self::Cliff2 => "cliff2",
             Self::Cliff3 => "cliff3",
             Self::Cliff4 => "cliff4",
+
+            Self::SlopeLine => "slope_line",
         }
     }
 
