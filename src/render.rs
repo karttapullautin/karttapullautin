@@ -671,28 +671,16 @@ pub fn draw_curves(
                 // Rings under the ISOM minimum are therefore dropped rather than filled
                 // in. Both the raster and the form line vector output are gated on
                 // help2/smallringtest below, so the two stay consistent.
-                smallringtest = false;
-                if x.first() == x.last() && y.first() == y.last() && x.len() < 122 {
-                    for i in 1..x.len() {
-                        if help2[i] {
-                            smallringtest = true
+                for max_length in [122usize, 60].iter() {
+                    smallringtest = false;
+                    if x.first() == x.last() && y.first() == y.last() && x.len() < *max_length {
+                        smallringtest = help2.iter().any(|v| *v);
+                        if smallringtest && closed_ring_below_isom_minimum(&x, &y, scalefactor) {
+                            smallringtest = false;
+                            help2.iter_mut().for_each(|h| *h = false);
                         }
-                    }
-                    if smallringtest && closed_ring_below_isom_minimum(&x, &y, scalefactor) {
-                        smallringtest = false;
-                        help2.iter_mut().for_each(|h| *h = false);
-                    }
-                }
-                if smallringtest {
-                    for i in 1..x.len() {
-                        help2[i] = true;
-                    }
-                }
-                smallringtest = false;
-                if x.first() == x.last() && y.first() == y.last() && x.len() < 60 {
-                    for i in 1..x.len() {
-                        if help2[i] {
-                            smallringtest = true
+                        if smallringtest {
+                            help2.iter_mut().for_each(|h| *h = true);
                         }
                     }
                 }

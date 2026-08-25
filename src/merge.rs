@@ -1039,6 +1039,10 @@ pub fn smoothjoin(
                 // — the reader cannot tell which way the ground goes. KP classified
                 // depressions but never drew the tick, and the vector output then folded
                 // `depression` into plain 101, so the distinction was lost for good.
+                //
+                // TODO: If slope_line returns None, the depression is too small to draw
+                // a slope line, we should then not draw the deppression contour and put a
+                // small depression symbol instead.
                 if config.draw_slopelines
                     && layer.is_depression()
                     && let Some(tick) = slope_line(&el_x[l], &el_y[l], h)
