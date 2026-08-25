@@ -388,7 +388,7 @@ fn decorate_depression(
     let (w, hgt) = (xmax - xmin, ymax - ymin);
     if w.max(hgt) < MIN_LENGTH_M || w.min(hgt) < MIN_WIDTH_M {
         // draw a small depression
-        let center = ((xmax + xmin) / 2.0, (ymax + ymin) / 2.0);
+        let center = ((xmax + xmin) / 2.0, (ymax + ymin + LENGTH_M) / 2.0);
         let steps = 8;
         let mut points = Vec::with_capacity(steps);
         let radius = LENGTH_M;
