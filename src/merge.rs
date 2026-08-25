@@ -1071,3 +1071,102 @@ pub fn smoothjoin(
     info!("Done");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::slope_line;
+
+    /// A closed ring approximating a circle of the given ground radius, in metres.
+    fn ring(radius: f64) -> (Vec<f64>, Vec<f64>) {
+        let (mut x, mut y) = (Vec::new(), Vec::new());
+        for i in 0..=24 {
+            let a = i as f64 / 24.0 * std::f64::consts::TAU;
+            x.push(100.0 + radius * a.cos());
+            y.push(200.0 + radius * a.sin());
+        }
+        (x, y)
+    }
+
+    #[test]
+    fn the_tick_points_into_the_depression() {
+        let (x, y) = ring(20.0);
+        let tick = slope_line(&x, &y, 12.5).expect("a 40 m depression carries a slope line");
+        let (start, end) = (&tick[0], &tick[1]);
+        let d_start = ((start.x - 100.0).powi(2) + (start.y - 200.0).powi(2)).sqrt();
+        let d_end = ((end.x - 100.0).powi(2) + (end.y - 200.0).powi(2)).sqrt();
+        assert!(
+            d_end < d_start,
+            "tick must point inward: {d_start} -> {d_end}"
+        );
+        assert_eq!(start.z, 12.5);
+    }
+
+    #[test]
+    fn the_tick_is_the_isom_length() {
+        let (x, y) = ring(20.0);
+        let tick = slope_line(&x, &y, 0.0).unwrap();
+        // 0.4 OM -> 0.6 mm at 1:10,000 -> 6 m on the ground.
+        let len = ((tick[1].x - tick[0].x).powi(2) + (tick[1].y - tick[0].y).powi(2)).sqrt();
+        assert!((len - 6.0).abs() < 1e-9, "{len}");
+    }
+
+    #[test]
+    fn a_ring_below_the_isom_minimum_gets_no_tick() {
+        // Under 16.5 x 10.5 m a contour depression may not be drawn at all.
+        let (x, y) = ring(4.0);
+        assert!(slope_line(&x, &y, 0.0).is_none());
+    }
+
+    #[test]
+    fn winding_does_not_flip_the_tick_outward() {
+        let (x, y) = ring(20.0);
+        let (rx, ry): (Vec<f64>, Vec<f64>) = (
+            x.iter().rev().copied().collect(),
+            y.iter().rev().copied().collect(),
+        );
+        let tick = slope_line(&rx, &ry, 0.0).unwrap();
+        let d_start = ((tick[0].x - 100.0).powi(2) + (tick[0].y - 200.0).powi(2)).sqrt();
+        let d_end = ((tick[1].x - 100.0).powi(2) + (tick[1].y - 200.0).powi(2)).sqrt();
+        assert!(d_end < d_start, "reversed winding must still point inward");
+    }
+
+    /// A crescent: its centroid falls OUTSIDE the ring, which is what sent the tick to
+    /// the wrong side on Nyrup Hegn. Shaped like a C opening to the right.
+    fn crescent() -> (Vec<f64>, Vec<f64>) {
+        let (mut x, mut y) = (Vec::new(), Vec::new());
+        for i in 0..=40 {
+            // outer arc, 270 degrees
+            let a = i as f64 / 40.0 * (1.5 * std::f64::consts::PI) + 0.25 * std::f64::consts::PI;
+            x.push(100.0 + 30.0 * a.cos());
+            y.push(200.0 + 30.0 * a.sin());
+        }
+        for i in (0..=40).rev() {
+            // inner arc back
+            let a = i as f64 / 40.0 * (1.5 * std::f64::consts::PI) + 0.25 * std::f64::consts::PI;
+            x.push(100.0 + 20.0 * a.cos());
+            y.push(200.0 + 20.0 * a.sin());
+        }
+        x.push(x[0]);
+        y.push(y[0]);
+        (x, y)
+    }
+
+    #[test]
+    fn a_crescent_ring_still_gets_an_inward_tick() {
+        let (x, y) = crescent();
+        let tick = super::slope_line(&x, &y, 0.0).expect("crescent is big enough");
+        assert!(
+            super::point_in_ring(&x, &y, tick[1].x, tick[1].y),
+            "tick end must be inside the ring, not outside it"
+        );
+    }
+
+    #[test]
+    fn the_tick_keeps_clear_of_the_contour() {
+        let (x, y) = crescent();
+        let tick = super::slope_line(&x, &y, 0.0).unwrap();
+        // The crescent is 10 m wide, so a 6 m tick placed well has room to spare; the
+        // failure this guards is a tick laid along or across the ring itself.
+        assert!(super::distance_to_ring(&x, &y, tick[1].x, tick[1].y) > 0.5);
+    }
+}
