@@ -114,6 +114,11 @@ impl<P, C> Polylines<P, C> {
         self.classification.push(class);
     }
 
+    pub fn pop(&mut self) {
+        self.polylines.pop();
+        self.classification.pop();
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (&Vec<P>, &C)> {
         self.polylines.iter().zip(self.classification.iter())
     }
@@ -340,6 +345,7 @@ pub enum Classification {
     /// at least one slope line"), not a symbol of its own, so it carries contour weight
     /// and maps to 101 downstream. Generated in merge, alongside the ring it belongs to.
     SlopeLine,
+    SmallDepression,
 }
 
 impl Classification {
@@ -373,6 +379,7 @@ impl Classification {
             Self::Cliff4 => "cliff4",
 
             Self::SlopeLine => "slope_line",
+            Self::SmallDepression => "small_depression",
         }
     }
 

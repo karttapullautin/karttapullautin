@@ -109,7 +109,7 @@ pub struct Config {
     pub remove_touching_contours: bool,
 
     pub depressions_color: (u8, u8, u8),
-    pub draw_slopelines: bool,
+    pub decorate_depressions: bool,
 }
 
 pub struct Zone {
@@ -355,7 +355,7 @@ impl Config {
                 split.next().unwrap_or("0").parse::<u8>().unwrap_or(0),
             )
         };
-        let draw_slopelines = gs.get("draw_slopelines").unwrap_or("0") == "1";
+        let decorate_depressions = gs.get("decorate_depressions").unwrap_or("0") == "1";
 
         let batch = gs.get("batch").unwrap() == "1";
         if batch && processes == 0 {
@@ -445,7 +445,7 @@ impl Config {
             label_depressions,
             remove_touching_contours,
             depressions_color,
-            draw_slopelines,
+            decorate_depressions,
         })
     }
 }
