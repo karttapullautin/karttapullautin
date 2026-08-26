@@ -766,6 +766,10 @@ pub fn draw_curves(
 
             let mut formiline_points = Vec::new();
 
+            if layer == Classification::SmallDepression {
+                curvew = 3.0;
+            }
+
             for i in 1..x.len() {
                 if curvew != 1.5 || formline == 0.0 || help2[i] || smallringtest {
                     if should_generate_formlines && curvew == 1.5 {
