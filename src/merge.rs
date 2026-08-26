@@ -463,9 +463,9 @@ fn distance_to_ring(el_x: &[f64], el_y: &[f64], px: f64, py: f64) -> f64 {
             (((px - ax) * dx + (py - ay) * dy) / l2).clamp(0.0, 1.0)
         };
         let (cx, cy) = (ax + t * dx, ay + t * dy);
-        best = best.min(((px - cx).powi(2) + (py - cy).powi(2)).sqrt());
+        best = best.min((px - cx).powi(2) + (py - cy).powi(2));
     }
-    best
+    best.sqrt()
 }
 
 pub fn smoothjoin(
