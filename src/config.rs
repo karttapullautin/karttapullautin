@@ -107,6 +107,9 @@ pub struct Config {
     pub minimumgap: u32,
     pub label_depressions: bool,
     pub remove_touching_contours: bool,
+
+    pub depressions_color: (u8, u8, u8),
+    pub decorate_depressions: bool,
 }
 
 pub struct Zone {
@@ -340,6 +343,20 @@ impl Config {
         let label_depressions: bool = gs.get("label_formlines_depressions").unwrap_or("0") == "1";
         let remove_touching_contours: bool =
             gs.get("remove_touching_contours").unwrap_or("0") == "1";
+
+        let depressions_color: (u8, u8, u8) = {
+            let mut split = gs
+                .get("depressions_color")
+                .unwrap_or("200,0,200")
+                .split(',');
+            (
+                split.next().unwrap_or("0").parse::<u8>().unwrap_or(0),
+                split.next().unwrap_or("0").parse::<u8>().unwrap_or(0),
+                split.next().unwrap_or("0").parse::<u8>().unwrap_or(0),
+            )
+        };
+        let decorate_depressions = gs.get("decorate_depressions").unwrap_or("0") == "1";
+
         let batch = gs.get("batch").unwrap() == "1";
         if batch && processes == 0 {
             return Err(
@@ -427,6 +444,8 @@ impl Config {
             minimumgap,
             label_depressions,
             remove_touching_contours,
+            depressions_color,
+            decorate_depressions,
         })
     }
 }

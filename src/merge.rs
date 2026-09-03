@@ -343,6 +343,131 @@ pub fn bindxfmerge(fs: &impl FileSystem, config: &Config) -> anyhow::Result<()> 
     Ok(())
 }
 
+/// The slope-line tick for a depression ring, or `None` when the ring is too small to
+/// carry the symbol.
+///
+/// ISOM 2017-2 (symbol 101) requires at least one slope line on a depression, drawn
+/// perpendicular to the contour and pointing downslope — i.e. into the ring. Its length
+/// is 0.4 OM on the 1:15,000 original, 0.6 mm at the 1:10,000 we render, which is 6 m on
+/// the ground; coordinates here are ground metres. A depression below ISOM's minimum
+/// size (1.1 x 0.7 OM -> 1.65 x 1.05 mm -> 16.5 x 10.5 m) is not drawable as a contour
+/// depression at all — those are the small-depression symbol's job — so it gets no tick.
+///
+/// Direction is decided by testing whether the tick's far end lands INSIDE the ring, not
+/// by aiming at the ring's centroid: a depression ring is often a long crescent, and a
+/// crescent's centroid lies outside it, so the centroid test pointed the tick out of the
+/// depression — the "wrong side" seen on Nyrup Hegn.
+///
+/// Placement then picks, among candidates spread around the ring, the one whose tick end
+/// sits deepest inside — furthest from any part of the ring. That keeps the tick clear of
+/// the contour instead of crossing it where the depression pinches, which is where a
+/// fixed position lands on an elongated ring.
+fn decorate_depression(
+    el_x: &[f64],
+    el_y: &[f64],
+    h: f64,
+) -> Option<(Vec<Point3>, Classification)> {
+    const LENGTH_M: f64 = 6.0;
+    const MIN_WIDTH_M: f64 = 10.5;
+    const MIN_LENGTH_M: f64 = 16.5;
+    /// Positions tried around the ring; the best-clearance one wins.
+    const CANDIDATES: usize = 12;
+
+    let n = el_x.len();
+    if n < 2 {
+        return None;
+    }
+    let (mut xmin, mut xmax) = (f64::MAX, f64::MIN);
+    let (mut ymin, mut ymax) = (f64::MAX, f64::MIN);
+    for (&x, &y) in el_x.iter().zip(el_y.iter()) {
+        xmin = xmin.min(x);
+        xmax = xmax.max(x);
+        ymin = ymin.min(y);
+        ymax = ymax.max(y);
+    }
+    let (w, hgt) = (xmax - xmin, ymax - ymin);
+    if w.max(hgt) < MIN_LENGTH_M || w.min(hgt) < MIN_WIDTH_M {
+        // draw a small depression
+        let center = ((xmax + xmin) / 2.0, (ymax + ymin + LENGTH_M) / 2.0);
+        let steps = 8;
+        let mut points = Vec::with_capacity(steps);
+        let radius = LENGTH_M;
+        for i in 0..steps {
+            // Angle from 0 to PI (semi-circle)
+            let angle = std::f64::consts::PI * ((i as f64) / ((steps - 1) as f64) + 1.0);
+            let x = center.0 + radius * angle.cos();
+            let y = center.1 + radius * angle.sin();
+            points.push(Point3::new(x, y, h));
+        }
+        return Some((points, Classification::SmallDepression));
+    }
+
+    let mut best: Option<(f64, [f64; 4])> = None;
+    for k in 0..CANDIDATES {
+        let i = k * n / CANDIDATES;
+        let (prev, next) = ((i + n - 1) % n, (i + 1) % n);
+        let (tx, ty) = (el_x[next] - el_x[prev], el_y[next] - el_y[prev]);
+        let len = (tx * tx + ty * ty).sqrt();
+        if len == 0.0 {
+            continue;
+        }
+        // Both perpendiculars; keep whichever ends up inside the ring.
+        for (nx, ny) in [(-ty / len, tx / len), (ty / len, -tx / len)] {
+            let (ex, ey) = (el_x[i] + nx * LENGTH_M, el_y[i] + ny * LENGTH_M);
+            if !point_in_ring(el_x, el_y, ex, ey) {
+                continue;
+            }
+            let clearance = distance_to_ring(el_x, el_y, ex, ey);
+            if best.is_none_or(|(b, _)| clearance > b) {
+                best = Some((clearance, [el_x[i], el_y[i], ex, ey]));
+            }
+        }
+    }
+    let (_, [sx, sy, ex, ey]) = best?;
+    Some((
+        vec![Point3::new(sx, sy, h), Point3::new(ex, ey, h)],
+        Classification::SlopeLine,
+    ))
+}
+
+/// Ray casting against the closed ring. Exact for concave shapes, which is the point.
+fn point_in_ring(el_x: &[f64], el_y: &[f64], px: f64, py: f64) -> bool {
+    let n = el_x.len();
+    let mut inside = false;
+    let mut j = n - 1;
+    for i in 0..n {
+        if (el_y[i] > py) != (el_y[j] > py) {
+            let t = (py - el_y[i]) / (el_y[j] - el_y[i]);
+            if px < el_x[i] + t * (el_x[j] - el_x[i]) {
+                inside = !inside;
+            }
+        }
+        j = i;
+    }
+    inside
+}
+
+/// Shortest distance from a point to the ring's segments — the tick's clearance.
+fn distance_to_ring(el_x: &[f64], el_y: &[f64], px: f64, py: f64) -> f64 {
+    let n = el_x.len();
+    let mut best = f64::MAX;
+    for i in 0..n {
+        let j = (i + 1) % n;
+        let (ax, ay) = (el_x[i], el_y[i]);
+        let (bx, by) = (el_x[j], el_y[j]);
+        let (dx, dy) = (bx - ax, by - ay);
+        let l2 = dx * dx + dy * dy;
+        let t = if l2 == 0.0 {
+            0.0
+        } else {
+            (((px - ax) * dx + (py - ay) * dy) / l2).clamp(0.0, 1.0)
+        };
+        let (cx, cy) = (ax + t * dx, ay + t * dy);
+        best = best.min((px - cx).powi(2) + (py - cy).powi(2));
+    }
+    best.sqrt()
+}
+
 pub fn smoothjoin(
     fs: &impl FileSystem,
     config: &Config,
@@ -927,6 +1052,23 @@ pub fn smoothjoin(
                         .collect(),
                     (layer, h),
                 );
+
+                // ISOM 2017-2, symbol 101: "a depression has to have at least one slope
+                // line". Without one a depression ring is indistinguishable from a knoll
+                // — the reader cannot tell which way the ground goes. KP classified
+                // depressions but never drew the tick, and the vector output then folded
+                // `depression` into plain 101, so the distinction was lost for good.
+                // if the return element happens to be a small depression, lets remove the
+                // original countour
+                if config.decorate_depressions
+                    && layer.is_depression()
+                    && let Some((form, class)) = decorate_depression(&el_x[l], &el_y[l], h)
+                {
+                    if class == Classification::SmallDepression {
+                        out2_lines.pop();
+                    }
+                    out2_lines.push(form, (class, h));
+                }
             } // -- if not dotkoll
         }
     }
@@ -948,4 +1090,106 @@ pub fn smoothjoin(
 
     info!("Done");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Classification;
+    use super::decorate_depression;
+    // A closed ring approximating a circle of the given ground radius, in metres.
+    fn ring(radius: f64) -> (Vec<f64>, Vec<f64>) {
+        let (mut x, mut y) = (Vec::new(), Vec::new());
+        for i in 0..=24 {
+            let a = i as f64 / 24.0 * std::f64::consts::TAU;
+            x.push(100.0 + radius * a.cos());
+            y.push(200.0 + radius * a.sin());
+        }
+        (x, y)
+    }
+
+    #[test]
+    fn the_tick_points_into_the_depression() {
+        let (x, y) = ring(20.0);
+        let (tick, class) =
+            decorate_depression(&x, &y, 12.5).expect("a 40 m depression carries a slope line");
+        assert!(class == Classification::SlopeLine);
+        let (start, end) = (&tick[0], &tick[1]);
+        let d_start = ((start.x - 100.0).powi(2) + (start.y - 200.0).powi(2)).sqrt();
+        let d_end = ((end.x - 100.0).powi(2) + (end.y - 200.0).powi(2)).sqrt();
+        assert!(
+            d_end < d_start,
+            "tick must point inward: {d_start} -> {d_end}"
+        );
+        assert_eq!(start.z, 12.5);
+    }
+
+    #[test]
+    fn the_tick_is_the_isom_length() {
+        let (x, y) = ring(20.0);
+        let (tick, _class) = decorate_depression(&x, &y, 0.0).unwrap();
+        // 0.4 OM -> 0.6 mm at 1:10,000 -> 6 m on the ground.
+        let len = ((tick[1].x - tick[0].x).powi(2) + (tick[1].y - tick[0].y).powi(2)).sqrt();
+        assert!((len - 6.0).abs() < 1e-9, "{len}");
+    }
+
+    #[test]
+    fn a_ring_below_the_isom_minimum_gets_no_tick() {
+        // Under 16.5 x 10.5 m a contour depression may not be drawn at all.
+        let (x, y) = ring(4.0);
+        let (_tick, class) = decorate_depression(&x, &y, 0.0).unwrap();
+        assert!(class == Classification::SmallDepression);
+    }
+
+    #[test]
+    fn winding_does_not_flip_the_tick_outward() {
+        let (x, y) = ring(20.0);
+        let (rx, ry): (Vec<f64>, Vec<f64>) = (
+            x.iter().rev().copied().collect(),
+            y.iter().rev().copied().collect(),
+        );
+        let (tick, _class) = decorate_depression(&rx, &ry, 0.0).unwrap();
+        let d_start = ((tick[0].x - 100.0).powi(2) + (tick[0].y - 200.0).powi(2)).sqrt();
+        let d_end = ((tick[1].x - 100.0).powi(2) + (tick[1].y - 200.0).powi(2)).sqrt();
+        assert!(d_end < d_start, "reversed winding must still point inward");
+    }
+
+    /// A crescent: its centroid falls OUTSIDE the ring, which is what sent the tick to
+    /// the wrong side on Nyrup Hegn. Shaped like a C opening to the right.
+    fn crescent() -> (Vec<f64>, Vec<f64>) {
+        let (mut x, mut y) = (Vec::new(), Vec::new());
+        for i in 0..=40 {
+            // outer arc, 270 degrees
+            let a = i as f64 / 40.0 * (1.5 * std::f64::consts::PI) + 0.25 * std::f64::consts::PI;
+            x.push(100.0 + 30.0 * a.cos());
+            y.push(200.0 + 30.0 * a.sin());
+        }
+        for i in (0..=40).rev() {
+            // inner arc back
+            let a = i as f64 / 40.0 * (1.5 * std::f64::consts::PI) + 0.25 * std::f64::consts::PI;
+            x.push(100.0 + 20.0 * a.cos());
+            y.push(200.0 + 20.0 * a.sin());
+        }
+        x.push(x[0]);
+        y.push(y[0]);
+        (x, y)
+    }
+
+    #[test]
+    fn a_crescent_ring_still_gets_an_inward_tick() {
+        let (x, y) = crescent();
+        let (tick, _class) = decorate_depression(&x, &y, 0.0).expect("crescent is big enough");
+        assert!(
+            super::point_in_ring(&x, &y, tick[1].x, tick[1].y),
+            "tick end must be inside the ring, not outside it"
+        );
+    }
+
+    #[test]
+    fn the_tick_keeps_clear_of_the_contour() {
+        let (x, y) = crescent();
+        let (tick, _class) = decorate_depression(&x, &y, 0.0).unwrap();
+        // The crescent is 10 m wide, so a 6 m tick placed well has room to spare; the
+        // failure this guards is a tick laid along or across the ring itself.
+        assert!(super::distance_to_ring(&x, &y, tick[1].x, tick[1].y) > 0.5);
+    }
 }

@@ -344,6 +344,30 @@ fn draw_cliffs(
     Ok(())
 }
 
+/// Is a closed form line ring smaller than ISOM allows the symbol to be drawn?
+///
+/// ISOM 2017-2 sets the minimum closed form line (knoll or depression) at 1.1 OM on the
+/// 1:15,000 original, which is 1.65 mm at the 1:10,000 we render — 16.5 m on the ground.
+/// Measured on the ring's longer bounding-box side, so an elongated ring is judged by
+/// its length: this drops specks, not real knolls.
+///
+/// `x`/`y` arrive in render pixels (600 dpi, 1:10,000, divided by `scalefactor`), so the
+/// inverse of that transform converts back to metres — the same one `formiline_points`
+/// uses when it writes ground coordinates.
+fn closed_ring_below_isom_minimum(x: &[f64], y: &[f64], scalefactor: f64) -> bool {
+    const MIN_GROUND_M: f64 = 16.5;
+    let (mut xmin, mut xmax) = (f64::MAX, f64::MIN);
+    let (mut ymin, mut ymax) = (f64::MAX, f64::MIN);
+    for (&px, &py) in x.iter().zip(y.iter()) {
+        xmin = xmin.min(px);
+        xmax = xmax.max(px);
+        ymin = ymin.min(py);
+        ymax = ymax.max(py);
+    }
+    let to_metres = 254.0 / 600.0 * scalefactor;
+    (xmax - xmin).max(ymax - ymin) * to_metres < MIN_GROUND_M
+}
+
 pub fn draw_curves(
     fs: &impl FileSystem,
     config: &Config,
@@ -510,10 +534,17 @@ pub fn draw_curves(
         let x = line.iter().map(|p| p.x).collect::<Vec<_>>();
         let y = line.iter().map(|p| p.y).collect::<Vec<_>>();
 
-        let color = if layer.is_contour() {
+        // The slope line is part of symbol 101, so it carries depression contour color
+        // weight — it just belongs to a depression, hence the nodepressions gate below.
+        let color = if layer.is_contour() && layer != Classification::SlopeLine {
             Rgba([166, 85, 43, 255]) // brown
         } else {
-            Rgba([200, 0, 200, 255]) // purple
+            Rgba([
+                config.depressions_color.0,
+                config.depressions_color.1,
+                config.depressions_color.2,
+                255,
+            ]) // Default purple
         };
 
         if !nodepressions || layer.is_contour() {
@@ -626,24 +657,30 @@ pub fn draw_curves(
                     }
                 }
                 // Let's not break small form line rings
-                smallringtest = false;
-                if x.first() == x.last() && y.first() == y.last() && x.len() < 122 {
-                    for i in 1..x.len() {
-                        if help2[i] {
-                            smallringtest = true
+                //
+                // ...but only down to the size ISOM allows one to be drawn at. A closed
+                // form line is legitimate for a knoll or depression (ISOM 2017-2 symbol
+                // 103) and dashing it would not read as a ring, which is why this rule
+                // promotes a qualifying small ring to a solid loop. The rule had no
+                // minimum size though, so a ring of a handful of vertices was promoted
+                // exactly like a real knoll. On flat hummocky ground with form lines at
+                // a 1.25 m interval that is most of the rings on the map, and the result
+                // is a render covered in closed loops that carry no information and are
+                // below the size the symbol may legally be drawn at anyway.
+                //
+                // Rings under the ISOM minimum are therefore dropped rather than filled
+                // in. Both the raster and the form line vector output are gated on
+                // help2/smallringtest below, so the two stay consistent.
+                for max_length in [122usize, 60].iter() {
+                    smallringtest = false;
+                    if x.first() == x.last() && y.first() == y.last() && x.len() < *max_length {
+                        smallringtest = help2.iter().any(|v| *v);
+                        if smallringtest && closed_ring_below_isom_minimum(&x, &y, scalefactor) {
+                            smallringtest = false;
+                            help2.iter_mut().for_each(|h| *h = false);
                         }
-                    }
-                }
-                if smallringtest {
-                    for i in 1..x.len() {
-                        help2[i] = true;
-                    }
-                }
-                smallringtest = false;
-                if x.first() == x.last() && y.first() == y.last() && x.len() < 60 {
-                    for i in 1..x.len() {
-                        if help2[i] {
-                            smallringtest = true
+                        if smallringtest {
+                            help2.iter_mut().for_each(|h| *h = true);
                         }
                     }
                 }
@@ -728,6 +765,10 @@ pub fn draw_curves(
             };
 
             let mut formiline_points = Vec::new();
+
+            if layer == Classification::SmallDepression {
+                curvew = 3.0;
+            }
 
             for i in 1..x.len() {
                 if curvew != 1.5 || formline == 0.0 || help2[i] || smallringtest {
@@ -860,4 +901,46 @@ pub fn draw_curves(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::closed_ring_below_isom_minimum;
+
+    /// Render pixels per ground metre at 600 dpi, 1:10,000 (the transform in draw_curves).
+    const PX_PER_M: f64 = 600.0 / 254.0;
+
+    /// A square ring of the given ground size, as the renderer would see it.
+    fn ring(metres: f64) -> (Vec<f64>, Vec<f64>) {
+        let s = metres * PX_PER_M;
+        (vec![0.0, s, s, 0.0, 0.0], vec![0.0, 0.0, s, s, 0.0])
+    }
+
+    #[test]
+    fn rings_below_the_isom_minimum_are_rejected() {
+        // ISOM 2017-2 symbol 103: minimum closed form line 1.65 mm at 1:10,000 = 16.5 m.
+        let (x, y) = ring(10.0);
+        assert!(closed_ring_below_isom_minimum(&x, &y, 1.0));
+        let (x, y) = ring(20.0);
+        assert!(!closed_ring_below_isom_minimum(&x, &y, 1.0));
+    }
+
+    #[test]
+    fn an_elongated_ring_is_judged_by_its_longer_side() {
+        // 5 m across but 40 m long: a real feature, not a speck.
+        let s = PX_PER_M;
+        let x = vec![0.0, 40.0 * s, 40.0 * s, 0.0, 0.0];
+        let y = vec![0.0, 0.0, 5.0 * s, 5.0 * s, 0.0];
+        assert!(!closed_ring_below_isom_minimum(&x, &y, 1.0));
+    }
+
+    #[test]
+    fn the_bound_is_ground_distance_not_pixels() {
+        // Same ring, scalefactor 2 => half the pixels for the same ground size, and the
+        // verdict must not change.
+        let (x, y) = ring(20.0);
+        let halved: Vec<f64> = x.iter().map(|v| v / 2.0).collect();
+        let halved_y: Vec<f64> = y.iter().map(|v| v / 2.0).collect();
+        assert!(!closed_ring_below_isom_minimum(&halved, &halved_y, 2.0));
+    }
 }
