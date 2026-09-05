@@ -224,7 +224,6 @@ pub fn xyz2heightmap(
     Ok(hmap)
 }
 
-
 /// Map a world coordinate to a heightmap cell index.
 ///
 /// Karttapullautin uses nearest-cell rounding (+ 0.5). For points exactly on
