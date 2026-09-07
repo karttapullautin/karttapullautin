@@ -89,8 +89,10 @@ pub fn xyz2heightmap(
                 let y: f64 = r.y;
                 let h: f64 = r.z as f64;
 
-                let idx_x = ((x - xmin) / scale + 0.5) as usize;
-                let idx_y = ((y - ymin) / scale + 0.5) as usize;
+                // +0.5 rounding can push a point on xmax/ymax to idx == w/h.
+                // Note: local h is elevation (f64) and shadows grid height — use list_alt dims.
+                let idx_x = heightmap_grid_index(x, xmin, scale, list_alt.width());
+                let idx_y = heightmap_grid_index(y, ymin, scale, list_alt.height());
 
                 let (sum, count) = &mut list_alt[(idx_x, idx_y)];
                 *sum += h;
@@ -220,6 +222,17 @@ pub fn xyz2heightmap(
     };
 
     Ok(hmap)
+}
+
+/// Map a world coordinate to a heightmap cell index.
+///
+/// Karttapullautin uses nearest-cell rounding (+ 0.5). For points exactly on
+/// (or within floating-point noise of) the aligned xmax/ymax edge this can
+/// produce idx == width/height, which panics in [Vec2D] indexing. Clamp to
+/// the last valid cell instead.
+fn heightmap_grid_index(v: f64, vmin: f64, scale: f64, n: usize) -> usize {
+    let idx = ((v - vmin) / scale + 0.5) as usize;
+    idx.min(n.saturating_sub(1))
 }
 
 /// Creates contour lines from a heightmap.
@@ -586,6 +599,19 @@ fn check_obj_in(
 #[cfg(test)]
 mod tests {
     use crate::contours;
+
+    #[test]
+    fn test_heightmap_grid_index_clamps_edge() {
+        let scale = 0.8_f64;
+        let vmin = 0.0_f64;
+        let n = 10_usize;
+        // v = vmin + n*scale => raw idx == n (OOB without clamp).
+        let v_edge = vmin + (n as f64) * scale;
+        let raw = ((v_edge - vmin) / scale + 0.5) as usize;
+        assert_eq!(raw, n);
+        assert_eq!(super::heightmap_grid_index(v_edge, vmin, scale, n), n - 1);
+        assert_eq!(super::heightmap_grid_index(vmin, vmin, scale, n), 0);
+    }
 
     #[test]
     fn test_grid2contours_empty() {
