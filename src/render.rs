@@ -523,7 +523,31 @@ pub fn draw_curves(
     let should_generate_formlines = formline == 2.0 && !nodepressions;
     let mut formlines = Polylines::<Point2, Classification>::new();
 
-    for (mut line, (layer, _height)) in input_lines.into_iter() {
+    let mut last_curve_drawn = false;
+    let mut should_draw_next_slope_line = true;
+    let next_slopeline_starts = input_lines
+        .iter()
+        .map(|(line, (layer, _))| {
+            if *layer == Classification::SlopeLine {
+                line.first().map(|point| {
+                    (
+                        (point.x - x0) * 600.0 / 254.0 / scalefactor,
+                        (y0 - point.y) * 600.0 / 254.0 / scalefactor,
+                    )
+                })
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    for (ii, (mut line, (layer, _height))) in input_lines.into_iter().enumerate() {
+        if layer == Classification::SlopeLine && (!last_curve_drawn || !should_draw_next_slope_line)
+        {
+            should_draw_next_slope_line = true;
+            continue;
+        }
+        last_curve_drawn = false;
+
         // flip and scale the line points
         for p in line.iter_mut() {
             p.x = (p.x - x0) * 600.0 / 254.0 / scalefactor;
@@ -770,7 +794,22 @@ pub fn draw_curves(
                 curvew = 3.0;
             }
 
+            // Check if next symbol is a slopeline and get its location
+            let next_slopeline_start = if layer.is_depression() {
+                next_slopeline_starts.get(ii + 1).copied().flatten()
+            } else {
+                None
+            };
+
             for i in 1..x.len() {
+                if !(curvew != 1.5 || formline == 0.0 || help2[i] || smallringtest)
+                    && should_draw_next_slope_line
+                    && let Some((next_x, next_y)) = next_slopeline_start
+                    && x[i] == next_x
+                    && y[i] == next_y
+                {
+                    should_draw_next_slope_line = false;
+                }
                 if curvew != 1.5 || formline == 0.0 || help2[i] || smallringtest {
                     if should_generate_formlines && curvew == 1.5 {
                         formiline_points.push(Point2::new(
@@ -837,9 +876,11 @@ pub fn draw_curves(
                                                 ((x[i] + n) as f32, (y[i] + m) as f32),
                                                 color,
                                             );
+
                                             m += 1.0;
                                         }
                                         n += 1.0;
+                                        last_curve_drawn = true;
                                     }
                                     gap = 0.0;
                                 }
@@ -855,6 +896,7 @@ pub fn draw_curves(
                                             color,
                                         );
                                         m += 1.0;
+                                        last_curve_drawn = true;
                                     }
                                     n += 1.0;
                                 }
@@ -871,6 +913,7 @@ pub fn draw_curves(
                                         color,
                                     );
                                     m += 1.0;
+                                    last_curve_drawn = true;
                                 }
                                 n += 1.0;
                             }
