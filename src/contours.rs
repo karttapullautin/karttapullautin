@@ -169,15 +169,6 @@ pub fn xyz2heightmap(
 
     fill_nan_values(&mut avg_alt);
 
-    // make sure we do not have any NaNs
-    for x in 0..avg_alt.width() {
-        for y in 0..avg_alt.height() {
-            if avg_alt[(x, y)].is_nan() {
-                panic!("heightmap should not have any nans, found NaN at ({x}, {y})");
-            }
-        }
-    }
-
     let hmap = HeightMap {
         xoffset: xmin,
         yoffset: ymin,
