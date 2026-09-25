@@ -167,43 +167,7 @@ pub fn xyz2heightmap(
         }
     }
 
-    for x in 0..avg_alt.width() {
-        for y in 0..avg_alt.height() {
-            if avg_alt[(x, y)].is_nan() {
-                // second round of interpolation of altitude of pixel
-                let mut val: f64 = 0.0;
-                let mut c = 0;
-
-                // iterate 3x3 cell area around the pixel if possible
-                for x_idx in x.saturating_sub(1)..=(x + 1).min(avg_alt.width() - 1) {
-                    for y_idx in y.saturating_sub(1)..=(y + 1).min(avg_alt.height() - 1) {
-                        if !avg_alt[(x_idx, y_idx)].is_nan() {
-                            c += 1;
-                            val += avg_alt[(x_idx, y_idx)];
-                        }
-                    }
-                }
-
-                if c > 0 {
-                    avg_alt[(x, y)] = val / c as f64;
-                }
-            }
-        }
-    }
-
-    for x in 0..avg_alt.width() {
-        for y in 1..avg_alt.height() {
-            if avg_alt[(x, y)].is_nan() {
-                avg_alt[(x, y)] = avg_alt[(x, y - 1)];
-            }
-        }
-        for yy in 1..avg_alt.height() {
-            let y = avg_alt.height() - 1 - yy;
-            if avg_alt[(x, y)].is_nan() {
-                avg_alt[(x, y)] = avg_alt[(x, y + 1)];
-            }
-        }
-    }
+    fill_nan_values(&mut avg_alt);
 
     // make sure we do not have any NaNs
     for x in 0..avg_alt.width() {
@@ -222,6 +186,66 @@ pub fn xyz2heightmap(
     };
 
     Ok(hmap)
+}
+
+/// Fill remaining gaps using a synchronous, distance-weighted neighborhood.
+///
+/// Every pass reads the grid as it existed at the start of the pass. This is
+/// important: updating cells while scanning would make the result depend on
+/// scan direction and create plateaus along rows or columns.
+fn fill_nan_values(grid: &mut Vec2D<f64>) {
+    const NEIGHBOR_OFFSETS: [(isize, isize, f64); 8] = [
+        (-1, -1, 0.7071067811865475),
+        (-1, 0, 1.0),
+        (-1, 1, 0.7071067811865475),
+        (0, -1, 1.0),
+        (0, 1, 1.0),
+        (1, -1, 0.7071067811865475),
+        (1, 0, 1.0),
+        (1, 1, 0.7071067811865475),
+    ];
+
+    while grid.is_any_nan() {
+        let previous = grid.clone();
+        let mut filled = 0;
+
+        for x in 0..grid.width() {
+            for y in 0..grid.height() {
+                if !previous[(x, y)].is_nan() {
+                    continue;
+                }
+
+                let mut weighted_sum = 0.0;
+                let mut total_weight = 0.0;
+                for &(dx, dy, weight) in &NEIGHBOR_OFFSETS {
+                    let neighbor_x = x as isize + dx;
+                    let neighbor_y = y as isize + dy;
+                    if neighbor_x < 0
+                        || neighbor_y < 0
+                        || neighbor_x >= previous.width() as isize
+                        || neighbor_y >= previous.height() as isize
+                    {
+                        continue;
+                    }
+
+                    let value = previous[(neighbor_x as usize, neighbor_y as usize)];
+                    if !value.is_nan() {
+                        weighted_sum += value * weight;
+                        total_weight += weight;
+                    }
+                }
+
+                if total_weight > 0.0 {
+                    grid[(x, y)] = weighted_sum / total_weight;
+                    filled += 1;
+                }
+            }
+        }
+
+        if filled == 0 {
+            break;
+        }
+    }
 }
 
 /// Map a world coordinate to a heightmap cell index.
