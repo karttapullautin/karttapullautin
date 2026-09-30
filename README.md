@@ -1,11 +1,7 @@
-# The "Map Machine" ***(Karttapullautin)***
+# ***(Karttapullautin)***
 ## What it this?
 
-The rust-lang source code of the map generator application that go through the alias ***pullauta*** which is available as binary executable for Linux, Mac and Windows (find attachment in each releases).
-
-## What is ***pullauta***?
-
-***pullauta*** is an application designed to generate highly accurate maps out of LiDAR data input files that supports many file formats, namely LAS, LAZ, and XYZ files. It uses advanced algorithms for filtering, classification, and feature extraction, ensuring that users can generate highly accurate maps with ease.
+Karttapullautin is an application used to generate ISOM accurate maps out of LiDAR data. It can ingest files in the LAS, LAZ, and XYZ file formats, and output maps as raster images and vector files. It is run on a computer through the command line tool named ***pullauta*** and is distributed as a compiled binary executable for Linux, Mac and Windows.
 
 ## Download ***pullauta*** 
 
@@ -22,10 +18,10 @@ Download the latest binary for your platform (Linux, Mac or Windows) from https:
 3) Finally compile it
    
     ```
-   cargo build --release
+    cargo build --release
     ```
 
-    For maximum performance, it is recommended to compile targeting the native cpu by specifying the `target-cpu` flag. This makes sure that any instruction set extensions such as SIMD and FMA are used. This includes if your processor supports AVX, AVX2 and AVX512 (and NEON on ARM targets) as 
+    For maximum performance, it is recommended to compile targeting the native CPU by specifying the `target-cpu` flag. This makes sure that any instruction set extensions such as SIMD and FMA are used. This includes if your processor supports AVX, AVX2 and AVX512 (and NEON on ARM targets) as 
 the default release binaries are compiled without these enabled to be as portable as possible. If you have a relatively recent CPU (eg. Intel `skylake` or later) you should instead compile like this:
     
     ```
@@ -37,7 +33,7 @@ the default release binaries are compiled without these enabled to be as portabl
 
 ### Converting a LiDAR file
 
-***pullauta*** accepts .LAS, .LAZ or .XYZ file with classification (xyzc).
+***pullauta*** accepts as input .LAS, .LAZ or .XYZ files.
 
 You can run the `pullauta` executable with the path to your file as argument:  
     
@@ -50,7 +46,7 @@ You can run the `pullauta` executable with the path to your file as argument:
 > ```
 > Other log level available is `warn`, in which no info of current run will be displayed, `error`, which will only show errors, and `trace` which will output a lot of log messages about small details during the processing.
 
-As output Karttapullautin writes two 600 dpi png map images. One without depressions and one with purple depressions. It also writes contours and cliffs as dxf files to temp folder to be post processed, for example using Open Orienteering Mapper or OCAD.
+As output Karttapullautin writes two 600 dpi png map images. One with and one without depressions. It also writes contours and cliffs as dxf files to temp folder to be post processed, for example using Open Orienteering Mapper or OCAD.
 
 You can re-render png map files (like with changed north line settings) by running the binary without arguments.  
     
