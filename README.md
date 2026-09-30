@@ -1,4 +1,4 @@
-# ***(Karttapullautin)***
+# ***Karttapullautin***
 ## What it this?
 
 Karttapullautin is an application used to generate ISOM accurate maps out of LiDAR data. It can ingest files in the LAS, LAZ, and XYZ file formats, and output maps as raster images and vector files. It is run on a computer through the command line tool named ***pullauta*** and is distributed as a compiled binary executable for Linux, Mac and Windows.
