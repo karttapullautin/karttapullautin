@@ -7,30 +7,6 @@ Karttapullautin is an application used to generate ISOM accurate maps out of LiD
 
 Download the latest binary for your platform (Linux, Mac or Windows) from https://github.com/karttapullautin/karttapullautin/releases/latest and extract the files where you want to use them.
 
-## Compiling ***pullauta*** from source code
-
-1) You need first to install the rust toolchain.
-
- - See https://rustup.rs  
-
-2) Then download the latest code at https://github.com/karttapullautin/karttapullautin/releases/latest
-
-3) Finally compile it
-   
-    ```
-    cargo build --release
-    ```
-
-    For maximum performance, it is recommended to compile targeting the native CPU by specifying the `target-cpu` flag. This makes sure that any instruction set extensions such as SIMD and FMA are used. This includes if your processor supports AVX, AVX2 and AVX512 (and NEON on ARM targets) as 
-the default release binaries are compiled without these enabled to be as portable as possible. If you have a relatively recent CPU (eg. Intel `skylake` or later) you should instead compile like this:
-    
-    ```
-    RUSTFLAGS="-C target-cpu=native" cargo build --release
-    ```
-
-4) The ***pullauta*** binary will be accessible in the `target/release/` directory. You can proceed and copy it to your desired directory.
-
-
 ### Converting a LiDAR file
 
 ***pullauta*** accepts as input .LAS, .LAZ or .XYZ files.
@@ -165,15 +141,33 @@ They are:
 
 If you need to run one of those, you must use the original perl script https://www.routegadget.net/karttapullautin/ or https://github.com/linville/kartta-pack for mac and linux
 
-## Development
+## Compiling ***pullauta*** from source code
 
-Make your changes, then youd run:
+1) You need first to install the rust toolchain.
 
+ - See https://rustup.rs  
+
+2) Then download the latest code at https://github.com/karttapullautin/karttapullautin/releases/latest
+
+3) Finally compile it
+   
+    ```
     cargo build --release
+    ```
 
-The new binary will be accessible in the `target/release/` directory
+    For maximum performance, it is recommended to compile targeting the native CPU by specifying the `target-cpu` flag. This makes sure that any instruction set extensions such as SIMD and FMA are used. This includes if your processor supports AVX, AVX2 and AVX512 (and NEON on ARM targets) as 
+the default release binaries are compiled without these enabled to be as portable as possible. If you have a relatively recent CPU (eg. Intel `skylake` or later) you should instead compile like this:
+    
+    ```
+    RUSTFLAGS="-C target-cpu=native" cargo build --release
+    ```
 
-## Contributors
+4) The ***pullauta*** binary will be accessible in the `target/release/` directory. You can proceed and copy it to your desired directory.
 
-@jagge @rphlo @antbern
+## Credit
 
+@jagge - Jarkko Ryyppö: Original developer of Karttapullautin
+
+@rphlo - Raphaël Stefanini: Developer who ported Karttapullautin from Perl to Rust
+
+@antbern - Anton Berneving: Developer responsible for multiple optimizations after the Rust port
