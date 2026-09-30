@@ -164,7 +164,7 @@ the default release binaries are compiled without these enabled to be as portabl
 
 4) The ***pullauta*** binary will be accessible in the `target/release/` directory. You can proceed and copy it to your desired directory.
 
-## Credit
+## Credits
 
 @jagge - Jarkko Ryyppö: Original developer of Karttapullautin
 
