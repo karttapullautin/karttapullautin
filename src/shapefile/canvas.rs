@@ -17,6 +17,12 @@ pub struct Color {
     pub b: u8,
 }
 
+impl From<image::Rgba<u8>> for Color {
+    fn from(c: image::Rgba<u8>) -> Self {
+        Self::new(c[0], c[1], c[2])
+    }
+}
+
 impl Color {
     pub fn new(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b }

@@ -1,5 +1,5 @@
 use anyhow::Context;
-use image::{GrayImage, Luma, Rgb, RgbImage, Rgba, RgbaImage};
+use image::{GrayImage, RgbImage, RgbaImage};
 use itertools::izip;
 use las::{PointDataBuilder, Reader};
 use log::debug;
@@ -17,6 +17,10 @@ use std::thread;
 use crate::blocks;
 use crate::cliffs;
 use crate::config::Config;
+use crate::constants::{
+    CROP_CANVAS_MARGIN_PX, GRID_PIXEL_SIZE_M, LAZ_BUFFER_MEMORY_BYTES, PX_PER_M,
+    TILE_EXTRACTION_PADDING_M,
+};
 use crate::contours;
 use crate::crop;
 use crate::io::fs::FileSystem;
@@ -25,6 +29,7 @@ use crate::io::xyz::XyzInternalWriter;
 use crate::io::xyz::XyzRecord;
 use crate::knolls;
 use crate::merge;
+use crate::palette::{BLACK_LUMA, TRANSPARENT_BLACK_RGBA, TRANSPARENT_WHITE_RGBA, WHITE_RGB};
 use crate::plan::InputFileIndex;
 use crate::plan::Operation;
 use crate::plan::Plan;
@@ -37,7 +42,7 @@ use crate::vegetation;
 
 // compute the number of elements we can buffer for 50MB of memory usage during LAZ -> XyzRecord conversion
 const LAZ_BUFFER_SIZE: usize =
-    50 * 1024 * 1024 / (size_of::<las::Point>() + size_of::<XyzRecord>());
+    LAZ_BUFFER_MEMORY_BYTES / (size_of::<las::Point>() + size_of::<XyzRecord>());
 
 /// Launches threads and coordinates the logic for processing multiple files in parallell.
 /// When it returns, all files have been processed and output files have been generated according to
@@ -57,7 +62,7 @@ pub fn launch_threads<F: FileSystem + Send + Clone + 'static>(
     }
 
     // TODO: this is hard-coded but should maybe be configurable?
-    let padding = 127.0;
+    let padding = TILE_EXTRACTION_PADDING_M;
 
     // folder where we store temporary extracted files to process later
     let staging_folder = Path::new("temp_staging");
@@ -593,7 +598,7 @@ pub fn process_tile(
     } else if contoursonly {
         info!("Rendering formlines");
         timing.start_section("rendering formlines");
-        let mut img = RgbaImage::from_pixel(1, 1, Rgba([0, 0, 0, 0]));
+        let mut img = RgbaImage::from_pixel(1, 1, TRANSPARENT_BLACK_RGBA);
         render::draw_curves(fs, config, &mut img, tmpfolder, false, false).unwrap();
     } else {
         info!("Skipped rendering");
@@ -741,15 +746,15 @@ pub fn batch_process(
                 .read_image_png(format!("pullautus{thread}.png"))
                 .expect("Opening image failed");
             let mut img = RgbImage::from_pixel(
-                ((maxx - minx) * 600.0 / 254.0 / scalefactor + 2.0) as u32,
-                ((maxy - miny) * 600.0 / 254.0 / scalefactor + 2.0) as u32,
-                Rgb([255, 255, 255]),
+                ((maxx - minx) * PX_PER_M / scalefactor + CROP_CANVAS_MARGIN_PX) as u32,
+                ((maxy - miny) * PX_PER_M / scalefactor + CROP_CANVAS_MARGIN_PX) as u32,
+                WHITE_RGB,
             );
             image::imageops::overlay(
                 &mut img,
                 &orig_img.to_rgb8(),
-                (-dx * 600.0 / 254.0 / scalefactor) as i64,
-                (-dy * 600.0 / 254.0 / scalefactor) as i64,
+                (-dx * PX_PER_M / scalefactor) as i64,
+                (-dy * PX_PER_M / scalefactor) as i64,
             );
 
             img.write_to(
@@ -764,15 +769,15 @@ pub fn batch_process(
                 .read_image_png(format!("pullautus_depr{thread}.png"))
                 .expect("Opening image failed");
             let mut img = RgbImage::from_pixel(
-                ((maxx - minx) * 600.0 / 254.0 / scalefactor + 2.0) as u32,
-                ((maxy - miny) * 600.0 / 254.0 / scalefactor + 2.0) as u32,
-                Rgb([255, 255, 255]),
+                ((maxx - minx) * PX_PER_M / scalefactor + CROP_CANVAS_MARGIN_PX) as u32,
+                ((maxy - miny) * PX_PER_M / scalefactor + CROP_CANVAS_MARGIN_PX) as u32,
+                WHITE_RGB,
             );
             image::imageops::overlay(
                 &mut img,
                 &orig_img.to_rgb8(),
-                (-dx * 600.0 / 254.0 / scalefactor) as i64,
-                (-dy * 600.0 / 254.0 / scalefactor) as i64,
+                (-dx * PX_PER_M / scalefactor) as i64,
+                (-dy * PX_PER_M / scalefactor) as i64,
             );
 
             img.write_to(
@@ -873,15 +878,15 @@ pub fn batch_process(
                 orig_img_reader.no_limits();
                 let orig_img = orig_img_reader.decode().unwrap();
                 let mut img = RgbaImage::from_pixel(
-                    ((maxx - minx) * 600.0 / 254.0 / scalefactor + 2.0) as u32,
-                    ((maxy - miny) * 600.0 / 254.0 / scalefactor + 2.0) as u32,
-                    Rgba([255, 255, 255, 0]),
+                    ((maxx - minx) * PX_PER_M / scalefactor + CROP_CANVAS_MARGIN_PX) as u32,
+                    ((maxy - miny) * PX_PER_M / scalefactor + CROP_CANVAS_MARGIN_PX) as u32,
+                    TRANSPARENT_WHITE_RGBA,
                 );
                 image::imageops::overlay(
                     &mut img,
                     &orig_img,
-                    (-dx * 600.0 / 254.0 / scalefactor) as i64,
-                    (-dy * 600.0 / 254.0 / scalefactor) as i64,
+                    (-dx * PX_PER_M / scalefactor) as i64,
+                    (-dy * PX_PER_M / scalefactor) as i64,
                 );
 
                 img.write_to(
@@ -900,9 +905,9 @@ pub fn batch_process(
                 orig_img_reader.no_limits();
                 let orig_img = orig_img_reader.decode().unwrap();
                 let mut img = RgbImage::from_pixel(
-                    ((maxx - minx) + 1.0) as u32,
-                    ((maxy - miny) + 1.0) as u32,
-                    Rgb([255, 255, 255]),
+                    ((maxx - minx) + GRID_PIXEL_SIZE_M) as u32,
+                    ((maxy - miny) + GRID_PIXEL_SIZE_M) as u32,
+                    WHITE_RGB,
                 );
                 image::imageops::overlay(&mut img, &orig_img.to_rgb8(), -dx as i64, -dy as i64);
 
@@ -920,8 +925,8 @@ pub fn batch_process(
                 write!(
                     &mut pgw_file_out,
                     "1.0\r\n0.0\r\n0.0\r\n-1.0\r\n{}\r\n{}\r\n",
-                    minx + 0.5,
-                    maxy - 0.5
+                    minx + GRID_PIXEL_SIZE_M / 2.0,
+                    maxy - GRID_PIXEL_SIZE_M / 2.0
                 )
                 .expect("Unable to write to file");
 
@@ -936,9 +941,9 @@ pub fn batch_process(
                     orig_img_reader.no_limits();
                     let orig_img = orig_img_reader.decode().unwrap();
                     let mut img = GrayImage::from_pixel(
-                        ((maxx - minx) + 1.0) as u32,
-                        ((maxy - miny) + 1.0) as u32,
-                        Luma([0]),
+                        ((maxx - minx) + GRID_PIXEL_SIZE_M) as u32,
+                        ((maxy - miny) + GRID_PIXEL_SIZE_M) as u32,
+                        BLACK_LUMA,
                     );
                     image::imageops::overlay(
                         &mut img,
@@ -962,9 +967,9 @@ pub fn batch_process(
                     orig_img_reader.no_limits();
                     let orig_img = orig_img_reader.decode().unwrap();
                     let mut img = GrayImage::from_pixel(
-                        ((maxx - minx) + 1.0) as u32,
-                        ((maxy - miny) + 1.0) as u32,
-                        Luma([0]),
+                        ((maxx - minx) + GRID_PIXEL_SIZE_M) as u32,
+                        ((maxy - miny) + GRID_PIXEL_SIZE_M) as u32,
+                        BLACK_LUMA,
                     );
                     image::imageops::overlay(
                         &mut img,

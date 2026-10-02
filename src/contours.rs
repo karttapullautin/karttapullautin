@@ -4,6 +4,7 @@ use std::error::Error;
 use std::path::Path;
 
 use crate::config::Config;
+use crate::constants::{CONTOUR_CORNER_SNAP_M, ELEVATION_SNAP_M};
 use crate::geometry::{BinaryDxf, Bounds, Classification, Point2, Polylines};
 use crate::io::fs::FileSystem;
 use crate::io::heightmap::HeightMap;
@@ -313,11 +314,11 @@ pub fn grid2contours(heightmap: &Vec2D<f64>, cinterval: f64) -> Vec<Vec<(f64, f6
     // contour interval, but in real world 2 cm is insignificant enough.
     for (_, _, ele) in avg_alt.iter_mut() {
         let temp: f64 = (*ele / cinterval + 0.5).floor() * cinterval;
-        if (*ele - temp).abs() < 0.02 {
+        if (*ele - temp).abs() < ELEVATION_SNAP_M {
             if *ele - temp < 0.0 {
-                *ele = temp - 0.02;
+                *ele = temp - ELEVATION_SNAP_M;
             } else {
-                *ele = temp + 0.02;
+                *ele = temp + ELEVATION_SNAP_M;
             }
         }
     }
@@ -365,38 +366,38 @@ pub fn grid2contours(heightmap: &Vec2D<f64>, cinterval: f64) -> Vec<Vec<(f64, f6
                 }
 
                 let temp: f64 = (a / v + 0.5).floor() * v;
-                if (a - temp).abs() < 0.05 {
+                if (a - temp).abs() < CONTOUR_CORNER_SNAP_M {
                     if a - temp < 0.0 {
-                        a = temp - 0.05;
+                        a = temp - CONTOUR_CORNER_SNAP_M;
                     } else {
-                        a = temp + 0.05;
+                        a = temp + CONTOUR_CORNER_SNAP_M;
                     }
                 }
 
                 let temp: f64 = (b / v + 0.5).floor() * v;
-                if (b - temp).abs() < 0.05 {
+                if (b - temp).abs() < CONTOUR_CORNER_SNAP_M {
                     if b - temp < 0.0 {
-                        b = temp - 0.05;
+                        b = temp - CONTOUR_CORNER_SNAP_M;
                     } else {
-                        b = temp + 0.05;
+                        b = temp + CONTOUR_CORNER_SNAP_M;
                     }
                 }
 
                 let temp: f64 = (c / v + 0.5).floor() * v;
-                if (c - temp).abs() < 0.05 {
+                if (c - temp).abs() < CONTOUR_CORNER_SNAP_M {
                     if c - temp < 0.0 {
-                        c = temp - 0.05;
+                        c = temp - CONTOUR_CORNER_SNAP_M;
                     } else {
-                        c = temp + 0.05;
+                        c = temp + CONTOUR_CORNER_SNAP_M;
                     }
                 }
 
                 let temp: f64 = (d / v + 0.5).floor() * v;
-                if (d - temp).abs() < 0.05 {
+                if (d - temp).abs() < CONTOUR_CORNER_SNAP_M {
                     if d - temp < 0.0 {
-                        d = temp - 0.05;
+                        d = temp - CONTOUR_CORNER_SNAP_M;
                     } else {
-                        d = temp + 0.05;
+                        d = temp + CONTOUR_CORNER_SNAP_M;
                     }
                 }
 

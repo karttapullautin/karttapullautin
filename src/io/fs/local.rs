@@ -37,14 +37,14 @@ impl FileSystem for LocalFileSystem {
         path: impl AsRef<Path>,
     ) -> Result<impl BufRead + Seek + Send + 'static, io::Error> {
         Ok(BufReader::with_capacity(
-            crate::ONE_MEGABYTE,
+            crate::constants::ONE_MEGABYTE,
             std::fs::File::open(path)?,
         ))
     }
 
     fn create(&self, path: impl AsRef<Path>) -> Result<impl Write + Seek, io::Error> {
         Ok(BufWriter::with_capacity(
-            crate::ONE_MEGABYTE,
+            crate::constants::ONE_MEGABYTE,
             std::fs::File::create(path)?,
         ))
     }

@@ -1,4 +1,4 @@
-use image::{Rgb, RgbImage};
+use image::RgbImage;
 use log::info;
 use rand::prelude::*;
 use std::borrow::Cow;
@@ -11,6 +11,7 @@ use crate::io::bytes::FromToBytes;
 use crate::io::fs::FileSystem;
 use crate::io::heightmap::HeightMap;
 use crate::io::xyz::XyzInternalReader;
+use crate::palette::{BLACK_RGB, WHITE_RGB};
 use crate::vec2d::Vec2D;
 
 pub fn makecliffs(
@@ -74,11 +75,7 @@ pub fn makecliffs(
         }
     }
 
-    let mut img = RgbImage::from_pixel(
-        (xmax - xmin) as u32,
-        (ymax - ymin) as u32,
-        Rgb([255, 255, 255]),
-    );
+    let mut img = RgbImage::from_pixel((xmax - xmin) as u32, (ymax - ymin) as u32, WHITE_RGB);
 
     let xmin = (xmin / 3.0).floor() * 3.0;
     let ymin = (ymin / 3.0).floor() * 3.0;
@@ -224,7 +221,7 @@ pub fn makecliffs(
                             {
                                 let p = img.get_pixel(imgx, imgy);
                                 if p[0] == 255 {
-                                    img.put_pixel(imgx, imgy, Rgb([0, 0, 0]));
+                                    img.put_pixel(imgx, imgy, BLACK_RGB);
 
                                     f2_lines.push(
                                         vec![

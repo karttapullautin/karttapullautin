@@ -1,6 +1,45 @@
-use image::{Luma, Rgba};
+use image::{Luma, Rgb, Rgba};
 
 use crate::config::Config;
+
+/// Number of entries in the indexed PNG palette.
+const PALETTE_SIZE: usize = 256;
+
+/// Maximum number of green shades; this many palette entries are reserved for them.
+const MAX_GREEN_SHADES: usize = 64;
+
+/// Palette index of the first green shade.
+const GREEN_SHADE_PALETTE_OFFSET: u8 = 16;
+
+// All colours used by the renderers are defined here.
+
+pub const WHITE_RGB: Rgb<u8> = Rgb([255, 255, 255]);
+pub const BLACK_RGB: Rgb<u8> = Rgb([0, 0, 0]);
+pub const WHITE_RGBA: Rgba<u8> = Rgba([255, 255, 255, 255]);
+pub const BLACK_RGBA: Rgba<u8> = Rgba([0, 0, 0, 255]);
+pub const TRANSPARENT_WHITE_RGBA: Rgba<u8> = Rgba([255, 255, 255, 0]);
+pub const TRANSPARENT_BLACK_RGBA: Rgba<u8> = Rgba([0, 0, 0, 0]);
+pub const BLACK_LUMA: Luma<u8> = Luma([0]);
+
+pub const BLUE_RGBA: Rgba<u8> = Rgba([29, 190, 255, 255]);
+pub const YELLOW2_RGBA: Rgba<u8> = Rgba([255, 219, 166, 255]);
+pub const UNDERGROWTH_RGBA: Rgba<u8> = Rgba([64, 121, 0, 255]);
+
+/// Colour of contours and dot knolls in the contour render.
+pub const CONTOUR_BROWN_RGBA: Rgba<u8> = Rgba([166, 85, 43, 255]);
+/// Colour of the north lines.
+pub const NORTH_LINE_RGBA: Rgba<u8> = Rgba([0, 0, 200, 255]);
+
+/// Cliff colours used when `cliffdebug` is enabled.
+pub const CLIFF2_DEBUG_RGBA: Rgba<u8> = Rgba([100, 0, 100, 255]);
+pub const CLIFF3_DEBUG_RGBA: Rgba<u8> = Rgba([0, 100, 100, 255]);
+pub const CLIFF4_DEBUG_RGBA: Rgba<u8> = Rgba([100, 100, 0, 255]);
+
+/// Colours used by the shapefile renderer.
+pub const SHAPEFILE_BROWN_RGBA: Rgba<u8> = Rgba([255, 150, 80, 255]);
+pub const SHAPEFILE_YELLOW_RGBA: Rgba<u8> = Rgba([255, 184, 83, 255]);
+pub const SHAPEFILE_MARSH_RGBA: Rgba<u8> = Rgba([0, 10, 220, 255]);
+pub const SHAPEFILE_OLIVE_RGBA: Rgba<u8> = Rgba([194, 176, 33, 255]);
 
 /// Our own wrapper around and image buffer that automatically handles drawing with a palette.
 #[derive(Clone)]
@@ -79,8 +118,8 @@ impl PalettedImage {
         encoder.set_depth(png::BitDepth::Eight);
 
         // create and fill palette array from provided palette
-        let mut palette_bytes = [0; 256 * 3];
-        let mut transparency_bytes = [0; 256];
+        let mut palette_bytes = [0; PALETTE_SIZE * 3];
+        let mut transparency_bytes = [0; PALETTE_SIZE];
 
         for (i, color) in palette.colors.iter().enumerate() {
             palette_bytes[i * 3] = color[0];
@@ -100,7 +139,7 @@ impl PalettedImage {
 
 /// Contains the global color palette for rendering.
 pub struct Palette {
-    colors: [image::Rgba<u8>; 256],
+    colors: [image::Rgba<u8>; PALETTE_SIZE],
 }
 
 impl std::ops::Index<PaletteColorEnum> for Palette {
@@ -119,23 +158,23 @@ impl std::ops::IndexMut<PaletteColorEnum> for Palette {
 
 impl Palette {
     pub fn new(config: &Config) -> Self {
-        let colors = [image::Rgba([0, 0, 0, 0]); 256];
+        let colors = [TRANSPARENT_BLACK_RGBA; PALETTE_SIZE];
 
         let mut palette = Self { colors };
 
         // initialize the palette with the colors from the config, and any hard-coded colors
 
-        palette[PaletteColorEnum::Transparent] = Rgba([255, 255, 255, 0]);
+        palette[PaletteColorEnum::Transparent] = TRANSPARENT_WHITE_RGBA;
 
-        palette[PaletteColorEnum::Yellow2] = Rgba([255, 219, 166, 255]);
+        palette[PaletteColorEnum::Yellow2] = YELLOW2_RGBA;
 
         {
             let num_greenshades = config.greenshades.len();
             let greentone = config.greentone;
 
             assert!(
-                num_greenshades <= 64,
-                "Number of green shades must be between 0 and 64"
+                num_greenshades <= MAX_GREEN_SHADES,
+                "Number of green shades must be between 0 and {MAX_GREEN_SHADES}"
             );
 
             for i in 0..num_greenshades {
@@ -148,10 +187,10 @@ impl Palette {
             }
         }
 
-        palette[PaletteColorEnum::BackgroundWhite] = Rgba([255, 255, 255, 255]);
-        palette[PaletteColorEnum::Black] = Rgba([0, 0, 0, 255]);
-        palette[PaletteColorEnum::Blue] = Rgba([29, 190, 255, 255]);
-        palette[PaletteColorEnum::Undergrowth] = Rgba([64, 121, 0, 255]);
+        palette[PaletteColorEnum::BackgroundWhite] = WHITE_RGBA;
+        palette[PaletteColorEnum::Black] = BLACK_RGBA;
+        palette[PaletteColorEnum::Blue] = BLUE_RGBA;
+        palette[PaletteColorEnum::Undergrowth] = UNDERGROWTH_RGBA;
 
         palette
     }
@@ -183,8 +222,11 @@ impl PaletteColorEnum {
             Self::Undergrowth => PaletteColor(Luma([5])),
 
             Self::GreenShade(shade) => {
-                assert!(*shade < 64, "Green shade must be between 0 and 63");
-                PaletteColor(Luma([16 + *shade]))
+                assert!(
+                    (*shade as usize) < MAX_GREEN_SHADES,
+                    "Green shade exceeds the maximum number of green shades"
+                );
+                PaletteColor(Luma([GREEN_SHADE_PALETTE_OFFSET + *shade]))
             }
         }
     }

@@ -1,4 +1,5 @@
-use image::{DynamicImage, Rgb, RgbImage, Rgba, RgbaImage};
+use crate::palette::{BLACK_RGB, TRANSPARENT_BLACK_RGBA, WHITE_RGB, WHITE_RGBA};
+use image::{DynamicImage, RgbImage, RgbaImage};
 use imageproc::drawing::draw_filled_rect_mut;
 use imageproc::filter::median_filter;
 use imageproc::rect::Rect;
@@ -27,11 +28,11 @@ pub fn blocks(fs: &impl FileSystem, tmpfolder: &Path) -> Result<(), Box<dyn Erro
         xyz.insert((x as u64, y as u64), h);
     }
 
-    let mut img = RgbImage::from_pixel(xmax as u32 * 2, ymax as u32 * 2, Rgb([255, 255, 255]));
-    let mut img2 = RgbaImage::from_pixel(xmax as u32 * 2, ymax as u32 * 2, Rgba([0, 0, 0, 0]));
+    let mut img = RgbImage::from_pixel(xmax as u32 * 2, ymax as u32 * 2, WHITE_RGB);
+    let mut img2 = RgbaImage::from_pixel(xmax as u32 * 2, ymax as u32 * 2, TRANSPARENT_BLACK_RGBA);
 
-    let black = Rgb([0, 0, 0]);
-    let white = Rgba([255, 255, 255, 255]);
+    let black = BLACK_RGB;
+    let white = WHITE_RGBA;
 
     let xyz_file_in = tmpfolder.join("xyztemp.xyz.bin");
     let mut reader = XyzInternalReader::new(fs.open(&xyz_file_in)?).unwrap();

@@ -6,6 +6,7 @@ use std::error::Error;
 use std::path::Path;
 
 use crate::config::Config;
+use crate::constants::{ELEVATION_SNAP_M, FIXED_POINT_SCALE};
 use crate::geometry::{BinaryDxf, Bounds, Classification, Geometry, Point2, Points, Polylines};
 use crate::io::bytes::FromToBytes;
 use crate::io::fs::FileSystem;
@@ -186,8 +187,8 @@ pub fn knolldetector(
     impl Key {
         fn new(x: f64, y: f64) -> Self {
             Key {
-                x: (x * 1000.0) as i64,
-                y: (y * 1000.0) as i64,
+                x: (x * FIXED_POINT_SCALE) as i64,
+                y: (y * FIXED_POINT_SCALE) as i64,
             }
         }
         /// Just a unique key for the case where we don't have a valid point.
@@ -1026,11 +1027,11 @@ pub fn xyzknolls(
     // contour interval, but in real world 2 cm is insignificant enough.
     for (_, _, h) in xyz2.grid.iter_mut() {
         let tmp = (*h / interval + 0.5).floor() * interval;
-        if (tmp - *h).abs() < 0.02 {
+        if (tmp - *h).abs() < ELEVATION_SNAP_M {
             if *h - tmp < 0.0 {
-                *h = tmp - 0.02;
+                *h = tmp - ELEVATION_SNAP_M;
             } else {
-                *h = tmp + 0.02;
+                *h = tmp + ELEVATION_SNAP_M;
             }
         }
     }
