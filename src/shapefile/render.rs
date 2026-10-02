@@ -9,7 +9,12 @@ use log::{debug, info};
 
 use crate::{
     config::Config,
+    constants::{ISOM_MARSH, PX_PER_M, ROAD_BRIDGE_WIDTH_PX, ROAD_EDGE_WIDTH_PX, ROAD_WIDTH_PX},
     io::fs::FileSystem,
+    palette::{
+        BLACK_RGBA, BLUE_RGBA, SHAPEFILE_BROWN_RGBA, SHAPEFILE_MARSH_RGBA, SHAPEFILE_OLIVE_RGBA,
+        SHAPEFILE_YELLOW_RGBA, WHITE_RGBA,
+    },
     shapefile::{
         canvas::{Canvas, Color},
         mapping::{Mapping, Operator},
@@ -93,8 +98,8 @@ pub fn render(
     let w = img.width() as f64;
     let h = img.height() as f64;
 
-    let outw = w * 600.0 / 254.0 / scalefactor;
-    let outh = h * 600.0 / 254.0 / scalefactor;
+    let outw = w * PX_PER_M / scalefactor;
+    let outh = h * PX_PER_M / scalefactor;
 
     // TODO: only allocate the canvas that are actually used... in a lazy way
     let (width, height) = (outw as u32, outh as u32);
@@ -111,19 +116,19 @@ pub fn render(
     let mut imgtempblacktop = Canvas::new(width, height);
     let mut imgblue2 = Canvas::new(width, height);
 
-    let white = Color::new(255, 255, 255);
-    let black = Color::new(0, 0, 0);
-    let brown = Color::new(255, 150, 80);
+    let white = Color::from(WHITE_RGBA);
+    let black = Color::from(BLACK_RGBA);
+    let brown = Color::from(SHAPEFILE_BROWN_RGBA);
 
     let buildingcolor = Color::new(
         config.buildingcolor.0,
         config.buildingcolor.1,
         config.buildingcolor.2,
     );
-    let yellow = Color::new(255, 184, 83);
-    let blue = Color::new(29, 190, 255);
-    let marsh = Color::new(0, 10, 220);
-    let olive = Color::new(194, 176, 33);
+    let yellow = Color::from(SHAPEFILE_YELLOW_RGBA);
+    let blue = Color::from(BLUE_RGBA);
+    let marsh = Color::from(SHAPEFILE_MARSH_RGBA);
+    let olive = Color::from(SHAPEFILE_OLIVE_RGBA);
 
     let shapetmpfolder = if batch {
         PathBuf::from("temp_shapefiles".to_string())
@@ -151,10 +156,10 @@ pub fn render(
         // drawshape comes here
         let mut reader = fs.read_shapefile(file.clone())?;
         let bbox = reader.header().bbox;
-        let minx = (600.0 / 254.0 / scalefactor * (bbox.min.x - x0)).floor();
-        let maxy = (600.0 / 254.0 / scalefactor * (y0 - bbox.min.y)).floor();
-        let maxx = (600.0 / 254.0 / scalefactor * (bbox.max.x - x0)).floor();
-        let miny = (600.0 / 254.0 / scalefactor * (y0 - bbox.max.y)).floor();
+        let minx = (PX_PER_M / scalefactor * (bbox.min.x - x0)).floor();
+        let maxy = (PX_PER_M / scalefactor * (y0 - bbox.min.y)).floor();
+        let maxx = (PX_PER_M / scalefactor * (bbox.max.x - x0)).floor();
+        let miny = (PX_PER_M / scalefactor * (y0 - bbox.max.y)).floor();
         log::debug!("Bounding box: {bbox:?}");
         if minx > outw || maxx < 0.0 || miny > outh || maxy < 0.0 {
             info!("Skipping shapefile {}, out of bounds.", file.display());
@@ -173,10 +178,10 @@ pub fn render(
                 _ => continue, // we don't care about other types
             };
 
-            let minx = (600.0 / 254.0 / scalefactor * (bbox.min.x - x0)).floor();
-            let maxy = (600.0 / 254.0 / scalefactor * (y0 - bbox.min.y)).floor();
-            let maxx = (600.0 / 254.0 / scalefactor * (bbox.max.x - x0)).floor();
-            let miny = (600.0 / 254.0 / scalefactor * (y0 - bbox.max.y)).floor();
+            let minx = (PX_PER_M / scalefactor * (bbox.min.x - x0)).floor();
+            let maxy = (PX_PER_M / scalefactor * (y0 - bbox.min.y)).floor();
+            let maxx = (PX_PER_M / scalefactor * (bbox.max.x - x0)).floor();
+            let miny = (PX_PER_M / scalefactor * (y0 - bbox.max.y)).floor();
             if minx > outw || maxx < 0.0 || miny > outh || maxy < 0.0 {
                 continue;
             }
@@ -235,17 +240,17 @@ pub fn render(
                 if ["12111", "12112", "12121", "12122", "12131", "12132"].contains(&luokka.as_str())
                     && versuh != -11.0
                 {
-                    imgbrown.set_line_width(20.0);
-                    imgbrowntop.set_line_width(20.0);
-                    thickness = 20.0;
+                    imgbrown.set_line_width(ROAD_WIDTH_PX);
+                    imgbrowntop.set_line_width(ROAD_WIDTH_PX);
+                    thickness = ROAD_WIDTH_PX;
                     color = Some((brown, Image::Brown));
-                    roadedge = 26.0;
-                    imgblack.set_line_width(26.0);
+                    roadedge = ROAD_EDGE_WIDTH_PX;
+                    imgblack.set_line_width(ROAD_EDGE_WIDTH_PX);
                     if versuh > 0.0 {
                         edgeimage = EdgeImage::BlackTop;
-                        imgbrown.set_line_width(14.0);
-                        imgbrowntop.set_line_width(14.0);
-                        thickness = 14.0;
+                        imgbrown.set_line_width(ROAD_BRIDGE_WIDTH_PX);
+                        imgbrowntop.set_line_width(ROAD_BRIDGE_WIDTH_PX);
+                        thickness = ROAD_BRIDGE_WIDTH_PX;
                     }
                 }
 
@@ -406,7 +411,7 @@ pub fn render(
 
                     let isom = &mapping.isom;
 
-                    if isom == "306" {
+                    if isom == ISOM_MARSH {
                         imgblue.set_line_width(5.0);
                         thickness = 4.0;
                         color = Some((marsh, Image::Blue));
@@ -442,23 +447,23 @@ pub fn render(
 
                     // road
                     if isom == "503" {
-                        imgbrown.set_line_width(20.0);
-                        imgbrowntop.set_line_width(20.0);
+                        imgbrown.set_line_width(ROAD_WIDTH_PX);
+                        imgbrowntop.set_line_width(ROAD_WIDTH_PX);
                         color = Some((brown, Image::Brown));
-                        roadedge = 26.0;
-                        thickness = 20.0;
-                        imgblack.set_line_width(26.0);
+                        roadedge = ROAD_EDGE_WIDTH_PX;
+                        thickness = ROAD_WIDTH_PX;
+                        imgblack.set_line_width(ROAD_EDGE_WIDTH_PX);
                     }
 
                     // road, bridges
                     if isom == "503T" {
                         edgeimage = EdgeImage::BlackTop;
-                        imgbrown.set_line_width(14.0);
-                        imgbrowntop.set_line_width(14.0);
+                        imgbrown.set_line_width(ROAD_BRIDGE_WIDTH_PX);
+                        imgbrowntop.set_line_width(ROAD_BRIDGE_WIDTH_PX);
                         color = Some((brown, Image::Brown));
-                        roadedge = 26.0;
-                        thickness = 14.0;
-                        imgblack.set_line_width(26.0);
+                        roadedge = ROAD_EDGE_WIDTH_PX;
+                        thickness = ROAD_BRIDGE_WIDTH_PX;
+                        imgblack.set_line_width(ROAD_EDGE_WIDTH_PX);
                     }
 
                     // railroads
@@ -570,8 +575,8 @@ pub fn render(
                             let x = point.x;
                             let y = point.y;
                             poly.push((
-                                (600.0 / 254.0 / scalefactor * (x - x0)).floor() as f32,
-                                (600.0 / 254.0 / scalefactor * (y0 - y)).floor() as f32,
+                                (PX_PER_M / scalefactor * (x - x0)).floor() as f32,
+                                (PX_PER_M / scalefactor * (y0 - y)).floor() as f32,
                             ));
                         }
                     }
@@ -656,12 +661,12 @@ pub fn render(
                             let x = point.x;
                             let y = point.y;
                             poly.push((
-                                (600.0 / 254.0 / scalefactor * (x - x0)).floor() as f32,
-                                (600.0 / 254.0 / scalefactor * (y0 - y)).floor() as f32,
+                                (PX_PER_M / scalefactor * (x - x0)).floor() as f32,
+                                (PX_PER_M / scalefactor * (y0 - y)).floor() as f32,
                             ));
                             polyborder.push((
-                                (600.0 / 254.0 / scalefactor * (x - x0)).floor() as f32,
-                                (600.0 / 254.0 / scalefactor * (y0 - y)).floor() as f32,
+                                (PX_PER_M / scalefactor * (x - x0)).floor() as f32,
+                                (PX_PER_M / scalefactor * (y0 - y)).floor() as f32,
                             ));
                         }
                         polys.push(poly);
@@ -715,9 +720,9 @@ pub fn render(
 
     let mut i = 0.0_f32;
     imgmarsh.set_transparent_color();
-    while i < ((h * 600.0 / 254.0 / scalefactor + 500.0) as f32) {
+    while i < ((h * PX_PER_M / scalefactor + 500.0) as f32) {
         i += 14.0;
-        let wd = (w * 600.0 / 254.0 / scalefactor + 2.0) as f32;
+        let wd = (w * PX_PER_M / scalefactor + 2.0) as f32;
         imgmarsh.draw_filled_polygon(&[vec![
             (-1.0, i),
             (wd, i),

@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::constants::{INTERMEDIATE_CONTOUR_WIDTH, PX_PER_M};
 use crate::geometry::BinaryDxf;
 use crate::geometry::Classification;
 use crate::geometry::Geometry;
@@ -7,6 +8,10 @@ use crate::geometry::Polylines;
 use crate::io::bytes::FromToBytes;
 use crate::io::fs::FileSystem;
 use crate::io::heightmap::HeightMap;
+use crate::palette::{
+    BLACK_RGBA, CLIFF2_DEBUG_RGBA, CLIFF3_DEBUG_RGBA, CLIFF4_DEBUG_RGBA, CONTOUR_BROWN_RGBA,
+    NORTH_LINE_RGBA,
+};
 use crate::vec2d::Vec2D;
 use image::ImageBuffer;
 use image::Rgba;
@@ -70,11 +75,10 @@ pub fn render(
 
     let eastoff = -((x0 - (-angle).tan() * y0)
         - ((x0 - (-angle).tan() * y0) / (250.0 / angle.cos())).floor() * (250.0 / angle.cos()))
-        / 254.0
-        * 600.0;
+        * PX_PER_M;
 
-    let new_width = (w as f64 * 600.0 / 254.0 / scalefactor) as u32;
-    let new_height = (h as f64 * 600.0 / 254.0 / scalefactor) as u32;
+    let new_width = (w as f64 * PX_PER_M / scalefactor) as u32;
+    let new_height = (h as f64 * PX_PER_M / scalefactor) as u32;
     let mut img = image::imageops::resize(
         &img,
         new_width,
@@ -109,22 +113,21 @@ pub fn render(
 
     // north lines ----------------
     if angle != 999.0 {
-        let mut i: f64 = eastoff - 600.0 * 250.0 / 254.0 / angle.cos() * 100.0 / scalefactor;
-        while i < w as f64 * 5.0 * 600.0 / 254.0 / scalefactor {
+        let mut i: f64 = eastoff - 250.0 * PX_PER_M / angle.cos() * 100.0 / scalefactor;
+        while i < w as f64 * 5.0 * PX_PER_M / scalefactor {
             for m in 0..nwidth {
                 draw_line_segment_mut(
                     &mut img,
                     (i as f32 + m as f32, 0.0),
                     (
-                        (i as f32
-                            + (angle.tan() * (h as f64) * 600.0 / 254.0 / scalefactor) as f32)
+                        (i as f32 + (angle.tan() * (h as f64) * PX_PER_M / scalefactor) as f32)
                             + m as f32,
-                        (h as f32 * 600.0 / 254.0 / scalefactor as f32),
+                        (h as f32 * PX_PER_M as f32 / scalefactor as f32),
                     ),
-                    Rgba([0, 0, 200, 255]),
+                    NORTH_LINE_RGBA,
                 );
             }
-            i += 600.0 * 250.0 / 254.0 / angle.cos() / scalefactor;
+            i += 250.0 * PX_PER_M / angle.cos() / scalefactor;
         }
     }
 
@@ -143,10 +146,10 @@ pub fn render(
         }
 
         // convert point to image coordinates
-        let x = (point.x - x0) * 600.0 / 254.0 / scalefactor;
-        let y = (y0 - point.y) * 600.0 / 254.0 / scalefactor;
+        let x = (point.x - x0) * PX_PER_M / scalefactor;
+        let y = (y0 - point.y) * PX_PER_M / scalefactor;
 
-        let color = Rgba([166, 85, 43, 255]);
+        let color = CONTOUR_BROWN_RGBA;
         draw_filled_circle_mut(&mut img, (x as i32, y as i32), 7, color)
     }
     // blocks -------------
@@ -255,7 +258,7 @@ pub fn render(
             let ip = line.unwrap_or(String::new());
             let x: f64 = ip.parse::<f64>().unwrap();
             if i == 0 || i == 3 {
-                write!(&mut pgw_file_out, "{}\r\n", x / 600.0 * 254.0 * scalefactor)
+                write!(&mut pgw_file_out, "{}\r\n", x / PX_PER_M * scalefactor)
                     .expect("Unable to write to file");
             } else {
                 write!(&mut pgw_file_out, "{ip}\r\n").expect("Unable to write to file");
@@ -288,19 +291,19 @@ fn draw_cliffs(
         // based on the layer we select the cliffcolor
         let cliffcolor = if config.cliffdebug {
             match class {
-                Classification::Cliff2 => Rgba([100, 0, 100, 255]),
-                Classification::Cliff3 => Rgba([0, 100, 100, 255]),
-                Classification::Cliff4 => Rgba([100, 100, 0, 255]),
-                _ => Rgba([0, 0, 0, 255]), // black
+                Classification::Cliff2 => CLIFF2_DEBUG_RGBA,
+                Classification::Cliff3 => CLIFF3_DEBUG_RGBA,
+                Classification::Cliff4 => CLIFF4_DEBUG_RGBA,
+                _ => BLACK_RGBA,
             }
         } else {
-            Rgba([0, 0, 0, 255]) // black
+            BLACK_RGBA
         };
 
         // scale and flip all points into pixel-space
         for p in line.iter_mut() {
-            p.x = (p.x - x0) * 600.0 / 254.0 / scalefactor;
-            p.y = (y0 - p.y) * 600.0 / 254.0 / scalefactor;
+            p.x = (p.x - x0) * PX_PER_M / scalefactor;
+            p.y = (y0 - p.y) * PX_PER_M / scalefactor;
         }
 
         if line.first() != line.last() {
@@ -364,7 +367,7 @@ fn closed_ring_below_isom_minimum(x: &[f64], y: &[f64], scalefactor: f64) -> boo
         ymin = ymin.min(py);
         ymax = ymax.max(py);
     }
-    let to_metres = 254.0 / 600.0 * scalefactor;
+    let to_metres = scalefactor / PX_PER_M;
     (xmax - xmin).max(ymax - ymin) * to_metres < MIN_GROUND_M
 }
 
@@ -531,8 +534,8 @@ pub fn draw_curves(
             if *layer == Classification::SlopeLine {
                 line.first().map(|point| {
                     (
-                        (point.x - x0) * 600.0 / 254.0 / scalefactor,
-                        (y0 - point.y) * 600.0 / 254.0 / scalefactor,
+                        (point.x - x0) * PX_PER_M / scalefactor,
+                        (y0 - point.y) * PX_PER_M / scalefactor,
                     )
                 })
             } else {
@@ -550,8 +553,8 @@ pub fn draw_curves(
 
         // flip and scale the line points
         for p in line.iter_mut() {
-            p.x = (p.x - x0) * 600.0 / 254.0 / scalefactor;
-            p.y = (y0 - p.y) * 600.0 / 254.0 / scalefactor;
+            p.x = (p.x - x0) * PX_PER_M / scalefactor;
+            p.y = (y0 - p.y) * PX_PER_M / scalefactor;
         }
 
         // TEMP: split x and y values
@@ -561,7 +564,7 @@ pub fn draw_curves(
         // The slope line is part of symbol 101, so it carries depression contour color
         // weight — it just belongs to a depression, hence the nodepressions gate below.
         let color = if layer.is_contour() && layer != Classification::SlopeLine {
-            Rgba([166, 85, 43, 255]) // brown
+            CONTOUR_BROWN_RGBA
         } else {
             Rgba([
                 config.depressions_color.0,
@@ -581,7 +584,7 @@ pub fn draw_curves(
                     curvew = 2.5
                 }
                 if layer.is_intermed() {
-                    curvew = 1.5
+                    curvew = INTERMEDIATE_CONTOUR_WIDTH
                 }
                 if layer.is_index() {
                     curvew = 3.5
@@ -592,22 +595,22 @@ pub fn draw_curves(
             let mut help = vec![false; x.len()];
             let mut help2 = vec![false; x.len()];
             let mut help3 = vec![false; x.len()];
-            if curvew == 1.5 {
+            if curvew == INTERMEDIATE_CONTOUR_WIDTH {
                 for i in 0..x.len() {
                     help[i] = false;
                     help2[i] = true;
                     help3[i] = false;
-                    let xx = (((x[i] / 600.0 * 254.0 * scalefactor + x0) - xstart) / size).floor()
-                        as usize;
-                    let yy = (((-y[i] / 600.0 * 254.0 * scalefactor + y0) - ystart) / size).floor()
-                        as usize;
+                    let xx =
+                        (((x[i] / PX_PER_M * scalefactor + x0) - xstart) / size).floor() as usize;
+                    let yy =
+                        (((-y[i] / PX_PER_M * scalefactor + y0) - ystart) / size).floor() as usize;
 
                     // make sure indices are within bounds for the grid lookups
                     if xx >= xyz.width() - 1 || yy >= xyz.height() - 1 || xx < 1 || yy < 1 {
                         continue;
                     }
 
-                    if curvew != 1.5
+                    if curvew != INTERMEDIATE_CONTOUR_WIDTH
                         || formline == 0.0
                         || steepness[(xx, yy)] < formlinesteepness
                         || steepness[(xx, yy + 1)] < formlinesteepness
@@ -802,7 +805,10 @@ pub fn draw_curves(
             };
 
             for i in 1..x.len() {
-                if !(curvew != 1.5 || formline == 0.0 || help2[i] || smallringtest)
+                if !(curvew != INTERMEDIATE_CONTOUR_WIDTH
+                    || formline == 0.0
+                    || help2[i]
+                    || smallringtest)
                     && should_draw_next_slope_line
                     && let Some((next_x, next_y)) = next_slopeline_start
                     && x[i] == next_x
@@ -810,16 +816,20 @@ pub fn draw_curves(
                 {
                     should_draw_next_slope_line = false;
                 }
-                if curvew != 1.5 || formline == 0.0 || help2[i] || smallringtest {
-                    if should_generate_formlines && curvew == 1.5 {
+                if curvew != INTERMEDIATE_CONTOUR_WIDTH
+                    || formline == 0.0
+                    || help2[i]
+                    || smallringtest
+                {
+                    if should_generate_formlines && curvew == INTERMEDIATE_CONTOUR_WIDTH {
                         formiline_points.push(Point2::new(
-                            x[i] / 600.0 * 254.0 * scalefactor + x0,
-                            -y[i] / 600.0 * scalefactor * 254.0 + y0,
+                            x[i] / PX_PER_M * scalefactor + x0,
+                            -y[i] / PX_PER_M * scalefactor + y0,
                         ));
                     }
 
                     if draw_image {
-                        if curvew == 1.5 && formline == 2.0 {
+                        if curvew == INTERMEDIATE_CONTOUR_WIDTH && formline == 2.0 {
                             let step =
                                 ((x[i - 1] - x[i]).powi(2) + (y[i - 1] - y[i]).powi(2)).sqrt();
                             if i < 4 {
@@ -949,9 +959,7 @@ pub fn draw_curves(
 #[cfg(test)]
 mod tests {
     use super::closed_ring_below_isom_minimum;
-
-    /// Render pixels per ground metre at 600 dpi, 1:10,000 (the transform in draw_curves).
-    const PX_PER_M: f64 = 600.0 / 254.0;
+    use crate::constants::PX_PER_M;
 
     /// A square ring of the given ground size, as the renderer would see it.
     fn ring(metres: f64) -> (Vec<f64>, Vec<f64>) {

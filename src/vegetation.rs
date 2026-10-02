@@ -9,6 +9,7 @@ use std::io::Write;
 use std::path::Path;
 
 use crate::config::{Config, Zone};
+use crate::constants::{PX_PER_M, RATIO_EPSILON};
 use crate::io::bytes::FromToBytes;
 use crate::io::fs::FileSystem;
 use crate::io::heightmap::HeightMap;
@@ -265,7 +266,7 @@ pub fn makevege(
                     highhit2 += noyhit[(i, j)];
                 }
             }
-            if ghit2 as f64 / (highhit2 as f64 + ghit2 as f64 + 0.01) > yellowthreshold {
+            if ghit2 as f64 / (highhit2 as f64 + ghit2 as f64 + RATIO_EPSILON) > yellowthreshold {
                 imgye2.draw_filled_rect(
                     Rect::at(x as i32 * 3 + 2, (h_3 as i32 - y as i32) * 3 - 3).of_size(3, 3),
                     PaletteColorEnum::Yellow2.to_color(),
@@ -532,7 +533,7 @@ pub fn makevege(
     let scalefactor = config.scalefactor;
 
     // factor to convert from coordinates to pixels
-    let tmpfactor = (600.0 / 254.0 / scalefactor) as f32;
+    let tmpfactor = (PX_PER_M / scalefactor) as f32;
 
     let bf32 = block as f32;
     let hf32 = h_block as f32;
@@ -541,13 +542,13 @@ pub fn makevege(
     let mut x = 0.0_f32;
 
     let mut imgug = PalettedImage::new(
-        (w_block as f64 * block * 600.0 / 254.0 / scalefactor) as u32,
-        (h_block as f64 * block * 600.0 / 254.0 / scalefactor) as u32,
+        (w_block as f64 * block * PX_PER_M / scalefactor) as u32,
+        (h_block as f64 * block * PX_PER_M / scalefactor) as u32,
         PaletteColorEnum::Transparent.to_color(),
     );
     let mut img_ug_bit = GrayImage::from_pixel(
-        (w_block as f64 * block * 600.0 / 254.0 / scalefactor) as u32,
-        (h_block as f64 * block * 600.0 / 254.0 / scalefactor) as u32,
+        (w_block as f64 * block * PX_PER_M / scalefactor) as u32,
+        (h_block as f64 * block * PX_PER_M / scalefactor) as u32,
         Luma([0x00]),
     );
     loop {
@@ -563,7 +564,8 @@ pub fn makevege(
             let yy = (y / bf32 / step) as usize;
 
             let ug_entry = &ug[(xx, yy)];
-            let value = ug_entry.ug as f64 / (ug_entry.ug as f64 + ug_entry.ugg as f64 + 0.01);
+            let value =
+                ug_entry.ug as f64 / (ug_entry.ug as f64 + ug_entry.ugg as f64 + RATIO_EPSILON);
             if value > uglimit {
                 draw_line_segment_mut(
                     &mut imgug,

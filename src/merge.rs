@@ -1,4 +1,4 @@
-use image::{RgbImage, Rgba, RgbaImage};
+use image::{RgbImage, RgbaImage};
 use log::info;
 use rustc_hash::FxHashMap as HashMap;
 use std::error::Error;
@@ -6,10 +6,12 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::config::Config;
+use crate::constants::{FIXED_POINT_SCALE, SMOOTHING_EPSILON};
 use crate::geometry::{BinaryDxf, Classification, Geometry, Point3, Points, Polylines};
 use crate::io::bytes::FromToBytes;
 use crate::io::fs::FileSystem;
 use crate::io::heightmap::HeightMap;
+use crate::palette::TRANSPARENT_WHITE_RGBA;
 use crate::vec2d::Vec2D;
 use image::buffer::ConvertBuffer;
 
@@ -65,7 +67,7 @@ fn merge_png(
     let mut im = RgbaImage::from_pixel(
         ((xmax - xmin) / min_res / scale) as u32,
         ((ymax - ymin) / min_res / scale) as u32,
-        Rgba([255, 255, 255, 0]),
+        TRANSPARENT_WHITE_RGBA,
     );
     for png in png_files.iter() {
         let filename = png.as_path().file_name().unwrap().to_str().unwrap();
@@ -559,8 +561,8 @@ pub fn smoothjoin(
     impl Key {
         fn new(x: f64, y: f64) -> Self {
             Key {
-                x: (x * 1000.0) as i64,
-                y: (y * 1000.0) as i64,
+                x: (x * FIXED_POINT_SCALE) as i64,
+                y: (y * FIXED_POINT_SCALE) as i64,
             }
         }
     }
@@ -914,17 +916,25 @@ pub fn smoothjoin(
                 let mut xa: Vec<f64> = vec![f64::NAN; el_x_len];
                 let mut ya: Vec<f64> = vec![f64::NAN; el_x_len];
                 for k in 1..(el_x_len - 1) {
-                    xa[k] = (el_x[l][k - 1] + el_x[l][k] / (0.01 + smoothing) + el_x[l][k + 1])
-                        / (2.0 + 1.0 / (0.01 + smoothing));
-                    ya[k] = (el_y[l][k - 1] + el_y[l][k] / (0.01 + smoothing) + el_y[l][k + 1])
-                        / (2.0 + 1.0 / (0.01 + smoothing));
+                    xa[k] = (el_x[l][k - 1]
+                        + el_x[l][k] / (SMOOTHING_EPSILON + smoothing)
+                        + el_x[l][k + 1])
+                        / (2.0 + 1.0 / (SMOOTHING_EPSILON + smoothing));
+                    ya[k] = (el_y[l][k - 1]
+                        + el_y[l][k] / (SMOOTHING_EPSILON + smoothing)
+                        + el_y[l][k + 1])
+                        / (2.0 + 1.0 / (SMOOTHING_EPSILON + smoothing));
                 }
 
                 if el_x[l].first() == el_x[l].last() && el_y[l].first() == el_y[l].last() {
-                    let vx = (el_x[l][1] + el_x[l][0] / (0.01 + smoothing) + el_x[l][el_x_len - 2])
-                        / (2.0 + 1.0 / (0.01 + smoothing));
-                    let vy = (el_y[l][1] + el_y[l][0] / (0.01 + smoothing) + el_y[l][el_x_len - 2])
-                        / (2.0 + 1.0 / (0.01 + smoothing));
+                    let vx = (el_x[l][1]
+                        + el_x[l][0] / (SMOOTHING_EPSILON + smoothing)
+                        + el_x[l][el_x_len - 2])
+                        / (2.0 + 1.0 / (SMOOTHING_EPSILON + smoothing));
+                    let vy = (el_y[l][1]
+                        + el_y[l][0] / (SMOOTHING_EPSILON + smoothing)
+                        + el_y[l][el_x_len - 2])
+                        / (2.0 + 1.0 / (SMOOTHING_EPSILON + smoothing));
                     xa[0] = vx;
                     ya[0] = vy;
                     xa[el_x_len - 1] = vx;
@@ -936,16 +946,16 @@ pub fn smoothjoin(
                     ya[el_x_len - 1] = el_y[l][el_x_len - 1];
                 }
                 for k in 1..(el_x_len - 1) {
-                    el_x[l][k] = (xa[k - 1] + xa[k] / (0.01 + smoothing) + xa[k + 1])
-                        / (2.0 + 1.0 / (0.01 + smoothing));
-                    el_y[l][k] = (ya[k - 1] + ya[k] / (0.01 + smoothing) + ya[k + 1])
-                        / (2.0 + 1.0 / (0.01 + smoothing));
+                    el_x[l][k] = (xa[k - 1] + xa[k] / (SMOOTHING_EPSILON + smoothing) + xa[k + 1])
+                        / (2.0 + 1.0 / (SMOOTHING_EPSILON + smoothing));
+                    el_y[l][k] = (ya[k - 1] + ya[k] / (SMOOTHING_EPSILON + smoothing) + ya[k + 1])
+                        / (2.0 + 1.0 / (SMOOTHING_EPSILON + smoothing));
                 }
                 if xa.first() == xa.last() && ya.first() == ya.last() {
-                    let vx = (xa[1] + xa[0] / (0.01 + smoothing) + xa[el_x_len - 2])
-                        / (2.0 + 1.0 / (0.01 + smoothing));
-                    let vy = (ya[1] + ya[0] / (0.01 + smoothing) + ya[el_x_len - 2])
-                        / (2.0 + 1.0 / (0.01 + smoothing));
+                    let vx = (xa[1] + xa[0] / (SMOOTHING_EPSILON + smoothing) + xa[el_x_len - 2])
+                        / (2.0 + 1.0 / (SMOOTHING_EPSILON + smoothing));
+                    let vy = (ya[1] + ya[0] / (SMOOTHING_EPSILON + smoothing) + ya[el_x_len - 2])
+                        / (2.0 + 1.0 / (SMOOTHING_EPSILON + smoothing));
                     el_x[l][0] = vx;
                     el_y[l][0] = vy;
                     el_x[l][el_x_len - 1] = vx;
@@ -958,17 +968,25 @@ pub fn smoothjoin(
                 }
 
                 for k in 1..(el_x_len - 1) {
-                    xa[k] = (el_x[l][k - 1] + el_x[l][k] / (0.01 + smoothing) + el_x[l][k + 1])
-                        / (2.0 + 1.0 / (0.01 + smoothing));
-                    ya[k] = (el_y[l][k - 1] + el_y[l][k] / (0.01 + smoothing) + el_y[l][k + 1])
-                        / (2.0 + 1.0 / (0.01 + smoothing));
+                    xa[k] = (el_x[l][k - 1]
+                        + el_x[l][k] / (SMOOTHING_EPSILON + smoothing)
+                        + el_x[l][k + 1])
+                        / (2.0 + 1.0 / (SMOOTHING_EPSILON + smoothing));
+                    ya[k] = (el_y[l][k - 1]
+                        + el_y[l][k] / (SMOOTHING_EPSILON + smoothing)
+                        + el_y[l][k + 1])
+                        / (2.0 + 1.0 / (SMOOTHING_EPSILON + smoothing));
                 }
 
                 if el_x[l].first() == el_x[l].last() && el_y[l].first() == el_y[l].last() {
-                    let vx = (el_x[l][1] + el_x[l][0] / (0.01 + smoothing) + el_x[l][el_x_len - 2])
-                        / (2.0 + 1.0 / (0.01 + smoothing));
-                    let vy = (el_y[l][1] + el_y[l][0] / (0.01 + smoothing) + el_y[l][el_x_len - 2])
-                        / (2.0 + 1.0 / (0.01 + smoothing));
+                    let vx = (el_x[l][1]
+                        + el_x[l][0] / (SMOOTHING_EPSILON + smoothing)
+                        + el_x[l][el_x_len - 2])
+                        / (2.0 + 1.0 / (SMOOTHING_EPSILON + smoothing));
+                    let vy = (el_y[l][1]
+                        + el_y[l][0] / (SMOOTHING_EPSILON + smoothing)
+                        + el_y[l][el_x_len - 2])
+                        / (2.0 + 1.0 / (SMOOTHING_EPSILON + smoothing));
                     xa[0] = vx;
                     ya[0] = vy;
                     xa[el_x_len - 1] = vx;

@@ -1,5 +1,5 @@
 use anyhow::Context;
-use image::{GrayImage, Luma, Rgb, RgbImage, Rgba, RgbaImage};
+use image::{GrayImage, RgbImage, RgbaImage};
 use itertools::izip;
 use las::{PointDataBuilder, Reader};
 use log::debug;
@@ -17,6 +17,10 @@ use std::thread;
 use crate::blocks;
 use crate::cliffs;
 use crate::config::Config;
+use crate::constants::{
+    CROP_CANVAS_MARGIN_PX, GRID_PIXEL_SIZE_M, LAZ_BUFFER_MEMORY_BYTES, PX_PER_M,
+    TILE_EXTRACTION_PADDING_M,
+};
 use crate::contours;
 use crate::crop;
 use crate::io::fs::FileSystem;
@@ -25,6 +29,7 @@ use crate::io::xyz::XyzInternalWriter;
 use crate::io::xyz::XyzRecord;
 use crate::knolls;
 use crate::merge;
+use crate::palette::{BLACK_LUMA, TRANSPARENT_BLACK_RGBA, TRANSPARENT_WHITE_RGBA, WHITE_RGB};
 use crate::plan::InputFileIndex;
 use crate::plan::Operation;
 use crate::plan::Plan;
@@ -37,23 +42,7 @@ use crate::vegetation;
 
 // compute the number of elements we can buffer for 50MB of memory usage during LAZ -> XyzRecord conversion
 const LAZ_BUFFER_SIZE: usize =
-    50 * 1024 * 1024 / (size_of::<las::Point>() + size_of::<XyzRecord>());
-
-/// Ground-metre padding added around a tile's bounds when extracting points from neighbouring LAZ files.
-const TILE_EXTRACTION_PADDING_M: f64 = 127.0;
-
-/// Render pixels per ground metre, fixed at 600 dpi and 1:10,000 map scale (before `scalefactor`).
-const PX_PER_M: f64 = 600.0 / 254.0;
-
-/// Extra pixels added to a crop canvas so float rounding/truncation never clips the overlaid image.
-const CROP_CANVAS_MARGIN_PX: f64 = 2.0;
-
-/// One pixel of the native vegetation/undergrowth-bit grid equals one ground metre.
-const GRID_PIXEL_SIZE_M: f64 = 1.0;
-
-const WHITE_RGB: Rgb<u8> = Rgb([255, 255, 255]);
-const TRANSPARENT_WHITE_RGBA: Rgba<u8> = Rgba([255, 255, 255, 0]);
-const BLACK_LUMA: Luma<u8> = Luma([0]);
+    LAZ_BUFFER_MEMORY_BYTES / (size_of::<las::Point>() + size_of::<XyzRecord>());
 
 /// Launches threads and coordinates the logic for processing multiple files in parallell.
 /// When it returns, all files have been processed and output files have been generated according to
@@ -609,7 +598,7 @@ pub fn process_tile(
     } else if contoursonly {
         info!("Rendering formlines");
         timing.start_section("rendering formlines");
-        let mut img = RgbaImage::from_pixel(1, 1, Rgba([0, 0, 0, 0]));
+        let mut img = RgbaImage::from_pixel(1, 1, TRANSPARENT_BLACK_RGBA);
         render::draw_curves(fs, config, &mut img, tmpfolder, false, false).unwrap();
     } else {
         info!("Skipped rendering");
