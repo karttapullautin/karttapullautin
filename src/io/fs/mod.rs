@@ -45,6 +45,7 @@ pub trait FileSystem: std::fmt::Debug {
     fn rename(&self, from: impl AsRef<Path>, to: impl AsRef<Path>) -> Result<(), io::Error>;
 
     /// Extract a ZIP archive to a directory.
+    #[cfg(feature = "shapefile")]
     fn extract_zip(
         &self,
         archive: impl AsRef<Path>,
