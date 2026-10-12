@@ -286,6 +286,9 @@ pub fn process_zip(
             crate::shapefile::render(fs, config, tmpfolder, true).unwrap();
         }
     }
+    if !cfg!(feature = "shapefile") && !batch && !filenames.is_empty() {
+        return Err(anyhow::anyhow!(SHAPEFILE_FEATURE_DISABLED).into());
+    }
 
     info!("Rendering png map with depressions");
     timing.start_section("Rendering png map with depressions");
