@@ -66,32 +66,4 @@ pub trait FileSystem: std::fmt::Debug {
         reader.limits(image::Limits::no_limits());
         reader.decode()
     }
-
-    /// Read a .shp file. Requires a neighboring .dbf file, and optionally a .shx file to exist.
-    ///
-    /// Implementation details from the [`shapefile::Reader::from_path`] function.
-    fn read_shapefile(
-        &self,
-        shp_file: impl AsRef<Path>,
-    ) -> anyhow::Result<
-        shapefile::Reader<impl std::io::Read + std::io::Seek, impl std::io::Read + std::io::Seek>,
-    > {
-        let shp_file = shp_file.as_ref().to_owned();
-        let dbf_path = shp_file.with_extension("dbf");
-        if !self.exists(&dbf_path) {
-            anyhow::bail!("DBF file not found for shapefile: {}", shp_file.display());
-        }
-
-        let dbf_reader = shapefile::dbase::Reader::new(self.open(dbf_path)?)?;
-
-        let shx_path = shp_file.with_extension("shx");
-        let shape_source = self.open(shp_file)?;
-        let shape_reader = if self.exists(&shx_path) {
-            shapefile::ShapeReader::with_shx(shape_source, self.open(shx_path)?)?
-        } else {
-            shapefile::ShapeReader::new(shape_source)?
-        };
-
-        Ok(shapefile::Reader::new(shape_reader, dbf_reader))
-    }
 }
