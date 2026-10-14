@@ -57,6 +57,7 @@ bincode-next = { version = "2.1", default-features = false, features = ["std", "
 
 bytemuck = { version = "1.23", features = ["derive"] }
 itertools = "0.15.0"
+web-time = "1.1.0"
 
 # C-backed crates that do not build for WebAssembly.
 [target.'cfg(not(target_family = "wasm"))'.dependencies]

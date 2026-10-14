@@ -168,7 +168,7 @@ pub fn render(
         }
 
         info!("Processing shapefile: {}", file.display());
-        let start = std::time::Instant::now();
+        let start = web_time::Instant::now();
         for shape_record in reader.iter_shapes_and_records() {
             let (shape, record) = shape_record
                 .unwrap_or_else(|_err: shapefile::Error| (Shape::NullShape, Record::default()));

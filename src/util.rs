@@ -4,11 +4,11 @@ use std::{
     io::{self, BufRead},
     path::Path,
     sync::{Arc, Condvar, Mutex},
-    time::Instant,
 };
 
 use anyhow::Context;
 use log::debug;
+use web_time::Instant;
 
 use crate::io::fs::FileSystem;
 
