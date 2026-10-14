@@ -63,3 +63,6 @@ web-time = "1.1.0"
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 mimalloc = { version = "0.1", default-features = false }
 zip = { version = "8.3", default-features = false, features = ["zstd"], optional = true }
+
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = "0.3"
