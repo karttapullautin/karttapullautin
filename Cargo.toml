@@ -45,7 +45,6 @@ zip = { version = "8.3", default-features = false, features = [
 	"deflate",
 	"deflate64",
 	"lzma",
-	"zstd",
 	"xz",
 
 ], optional = true }
@@ -62,3 +61,4 @@ itertools = "0.15.0"
 # C-backed crates that do not build for WebAssembly.
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 mimalloc = { version = "0.1", default-features = false }
+zip = { version = "8.3", default-features = false, features = ["zstd"], optional = true }
