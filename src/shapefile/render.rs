@@ -18,6 +18,7 @@ use crate::{
     shapefile::{
         canvas::{Canvas, Color},
         mapping::{Mapping, Operator},
+        read_shapefile,
     },
 };
 use shapefile::dbase::{FieldValue, Record};
@@ -154,7 +155,7 @@ pub fn render(
         let mut file = shapetmpfolder.join(file);
 
         // drawshape comes here
-        let mut reader = fs.read_shapefile(file.clone())?;
+        let mut reader = read_shapefile(fs, file.clone())?;
         let bbox = reader.header().bbox;
         let minx = (PX_PER_M / scalefactor * (bbox.min.x - x0)).floor();
         let maxy = (PX_PER_M / scalefactor * (y0 - bbox.min.y)).floor();

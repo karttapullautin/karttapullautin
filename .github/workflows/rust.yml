@@ -24,6 +24,9 @@ jobs:
       - name: Check
         run: cargo check --all-features --all-targets
 
+      - name: Check without default features
+        run: cargo check --no-default-features --all-targets
+
       - name: Build
         run: cargo build
 
@@ -51,6 +54,7 @@ jobs:
       # strict version that does not allow _any_ clippy warnings to pass
       # this prevents us from introducing potential issues.
       - run: cargo clippy --all-features --all-targets -- -D warnings
+      - run: cargo clippy --no-default-features --all-targets -- -D warnings
 
   format:
     name: Format (rustfmt)

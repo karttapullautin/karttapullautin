@@ -1,8 +1,6 @@
 use std::io::{self, BufRead, BufReader, BufWriter, Seek, Write};
 use std::path::{Path, PathBuf};
 
-use anyhow::Context;
-
 use super::FileSystem;
 
 /// [`FileSystem`] implementation for the local file system.
@@ -72,11 +70,13 @@ impl FileSystem for LocalFileSystem {
         Ok(())
     }
 
+    #[cfg(feature = "shapefile")]
     fn extract_zip(
         &self,
         archive: impl AsRef<Path>,
         target: impl AsRef<Path>,
     ) -> anyhow::Result<()> {
+        use anyhow::Context;
         let file = self.open(&archive).context("opening zip file")?;
         let mut zip_archive = zip::ZipArchive::new(file).context("reading zip archive")?;
         log::info!(
