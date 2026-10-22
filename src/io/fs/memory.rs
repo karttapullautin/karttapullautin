@@ -1,5 +1,4 @@
 use super::FileSystem;
-use anyhow::Context;
 use rustc_hash::FxHashMap as HashMap;
 
 use core::str;
@@ -451,11 +450,13 @@ impl FileSystem for MemoryFileSystem {
         Ok(())
     }
 
+    #[cfg(feature = "shapefile")]
     fn extract_zip(
         &self,
         archive: impl AsRef<Path>,
         target: impl AsRef<Path>,
     ) -> anyhow::Result<()> {
+        use anyhow::Context;
         let file = self.open(&archive).context("opening zip file")?;
         let mut zip_archive = zip::ZipArchive::new(file).context("reading zip archive")?;
         log::info!(

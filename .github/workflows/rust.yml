@@ -24,6 +24,16 @@ jobs:
       - name: Check
         run: cargo check --all-features --all-targets
 
+      - name: Check without default features
+        run: cargo check --no-default-features --all-targets
+
+      - name: Check WebAssembly targets
+        run: |
+          # added here rather than via the action so they land on the toolchain rust-toolchain.toml selects
+          rustup target add wasm32-wasip1 wasm32-unknown-unknown
+          cargo check --target wasm32-wasip1 --all-features --all-targets
+          cargo check --target wasm32-unknown-unknown --all-features --all-targets
+
       - name: Build
         run: cargo build
 
@@ -51,6 +61,7 @@ jobs:
       # strict version that does not allow _any_ clippy warnings to pass
       # this prevents us from introducing potential issues.
       - run: cargo clippy --all-features --all-targets -- -D warnings
+      - run: cargo clippy --no-default-features --all-targets -- -D warnings
 
   format:
     name: Format (rustfmt)

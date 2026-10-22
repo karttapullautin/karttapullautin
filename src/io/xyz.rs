@@ -1,10 +1,8 @@
 use crate::io::bytes::FromToBytes;
-use std::{
-    io::{Read, Seek, Write},
-    time::Instant,
-};
+use std::io::{Read, Seek, Write};
 
 use log::debug;
+use web_time::Instant;
 
 /// The magic number that identifies a valid XYZ binary file.
 const XYZ_MAGIC: &[u8] = b"XYZB";
