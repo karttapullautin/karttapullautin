@@ -718,6 +718,7 @@ mod tests {
 
     struct UndergrowthOutput {
         category: u8,
+        scalefactor: f64,
         image: GrayImage,
         dimensions: (u32, u32),
     }
@@ -727,14 +728,14 @@ mod tests {
         OUTPUTS.get_or_init(|| {
             let mut config = Config::load_or_create_default().unwrap();
             config.vege_bitmode = true;
-            config.scalefactor = 1.0;
             config.greendetectsize = 3.0;
             config.vegezoffset = 0.0;
             config.vegethin = 0;
             config.uglimit = 0.35;
             config.uglimit2 = 0.56;
             let mut outputs = Vec::new();
-            for category in [0x01, 0x02] {
+            for (scalefactor, category) in [(1.0, 0x01), (1.0, 0x02), (4.0, 0x01), (4.0, 0x02)] {
+                config.scalefactor = scalefactor;
                 let fs = MemoryFileSystem::new();
                 let folder = Path::new("vegetation-test");
                 fs.create_dir_all(folder).unwrap();
@@ -776,6 +777,7 @@ mod tests {
                     .unwrap();
                 outputs.push(UndergrowthOutput {
                     category,
+                    scalefactor,
                     image: fs
                         .read_image_png(folder.join("undergrowth_bit.png"))
                         .unwrap()
@@ -798,21 +800,57 @@ mod tests {
     }
 
     fn assert_metre_export(category: u8) {
+        for output in undergrowth_outputs()
+            .iter()
+            .filter(|output| output.category == category)
+        {
+            let (width, height) = output.dimensions;
+            let mut exported = GrayImage::new(width, height);
+            image::imageops::overlay(&mut exported, &output.image, 0, 0);
+            for (x, y) in [(18, 198), (162, 36)] {
+                assert_eq!(
+                    exported.get_pixel(x, y).0[0],
+                    category,
+                    "A: category {category:#04x} lost at ({x}, {y})"
+                );
+            }
+            assert!(exported.pixels().all(|p| [0, category].contains(&p.0[0])));
+        }
+    }
+
+    #[test]
+    fn undergrowth_bit_light_footprint_tracks_production_factor() {
+        assert_production_footprint(0x01, 1.0, 24, 0);
+    }
+
+    #[test]
+    fn undergrowth_bit_dense_footprint_tracks_production_factor() {
+        assert_production_footprint(0x02, 1.0, 24, 0);
+    }
+
+    #[test]
+    fn undergrowth_bit_light_footprint_tracks_coarse_production_factor() {
+        assert_production_footprint(0x01, 4.0, 50, 0x01);
+    }
+
+    #[test]
+    fn undergrowth_bit_dense_footprint_tracks_coarse_production_factor() {
+        assert_production_footprint(0x02, 4.0, 50, 0x02);
+    }
+
+    fn assert_production_footprint(category: u8, scalefactor: f64, offset: i32, expected: u8) {
         let output = undergrowth_outputs()
             .iter()
-            .find(|output| output.category == category)
+            .find(|output| output.category == category && output.scalefactor == scalefactor)
             .unwrap();
-        let (width, height) = output.dimensions;
-        let mut exported = GrayImage::new(width, height);
-        image::imageops::overlay(&mut exported, &output.image, 0, 0);
-        for (x, y) in [(18, 198), (162, 36)] {
+        // Probe outside the default footprint and inside the coarse footprint after filtering.
+        for (x, y, direction) in [(18, 198, 1), (162, 36, -1)] {
             assert_eq!(
-                exported.get_pixel(x, y).0[0],
-                category,
-                "A: category {category:#04x} lost at ({x}, {y})"
+                output.image.get_pixel((x + direction * offset) as u32, y).0[0],
+                expected,
+                "C: production footprint category {category:#04x}, scale {scalefactor}, ({x}, {y})"
             );
         }
-        assert!(exported.pixels().all(|p| [0, category].contains(&p.0[0])));
     }
 
     #[test]
