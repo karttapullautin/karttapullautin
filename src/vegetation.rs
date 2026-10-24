@@ -546,11 +546,7 @@ pub fn makevege(
         (h_block as f64 * block * PX_PER_M / scalefactor) as u32,
         PaletteColorEnum::Transparent.to_color(),
     );
-    let mut img_ug_bit = GrayImage::from_pixel(
-        (w_block as f64 * block * PX_PER_M / scalefactor) as u32,
-        (h_block as f64 * block * PX_PER_M / scalefactor) as u32,
-        Luma([0x00]),
-    );
+    let mut img_ug_bit = GrayImage::new(img_width, img_height);
     loop {
         if x >= ww {
             break;
@@ -617,15 +613,7 @@ pub fn makevege(
                 );
 
                 if vege_bitmode {
-                    draw_filled_circle_mut(
-                        &mut img_ug_bit,
-                        (
-                            (tmpfactor * (x)) as i32,
-                            (tmpfactor * (hf32 * bf32 - y)) as i32,
-                        ),
-                        (bf32 * 9.0 * SQRT_2) as i32,
-                        Luma([0x01]),
-                    )
+                    draw_undergrowth_bit(&mut img_ug_bit, x, hf32 * bf32 - y, bf32, tmpfactor, 0x01)
                 }
             }
             if value > uglimit2 {
@@ -649,15 +637,7 @@ pub fn makevege(
                 );
 
                 if vege_bitmode {
-                    draw_filled_circle_mut(
-                        &mut img_ug_bit,
-                        (
-                            (tmpfactor * (x)) as i32,
-                            (tmpfactor * (hf32 * bf32 - y)) as i32,
-                        ),
-                        (bf32 * 9.0 * SQRT_2) as i32,
-                        Luma([0x02]),
-                    )
+                    draw_undergrowth_bit(&mut img_ug_bit, x, hf32 * bf32 - y, bf32, tmpfactor, 0x02)
                 }
             }
 
@@ -709,4 +689,216 @@ pub fn makevege(
 
     info!("Done");
     Ok(())
+}
+
+fn draw_undergrowth_bit(
+    image: &mut GrayImage,
+    x: f32,
+    y: f32,
+    block: f32,
+    tmpfactor: f32,
+    category: u8,
+) {
+    // Convert the original integer render-pixel radius to metres to keep its ground footprint.
+    let radius = (block * 9.0 * SQRT_2) as i32;
+    draw_filled_circle_mut(
+        image,
+        (x as i32, y as i32),
+        (radius as f32 / tmpfactor) as i32,
+        Luma([category]),
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::io::fs::memory::MemoryFileSystem;
+    use crate::io::xyz::{XyzInternalWriter, XyzRecord};
+    use std::sync::OnceLock;
+
+    struct UndergrowthOutput {
+        category: u8,
+        scalefactor: f64,
+        image: GrayImage,
+        dimensions: (u32, u32),
+    }
+
+    fn undergrowth_outputs() -> &'static Vec<UndergrowthOutput> {
+        static OUTPUTS: OnceLock<Vec<UndergrowthOutput>> = OnceLock::new();
+        OUTPUTS.get_or_init(|| {
+            let mut config = Config::load_or_create_default().unwrap();
+            config.vege_bitmode = true;
+            config.greendetectsize = 3.0;
+            config.vegezoffset = 0.0;
+            config.vegethin = 0;
+            config.uglimit = 0.35;
+            config.uglimit2 = 0.56;
+            let mut outputs = Vec::new();
+            for (scalefactor, category) in [(1.0, 0x01), (1.0, 0x02), (4.0, 0x01), (4.0, 0x02)] {
+                config.scalefactor = scalefactor;
+                let fs = MemoryFileSystem::new();
+                let folder = Path::new("vegetation-test");
+                fs.create_dir_all(folder).unwrap();
+                HeightMap {
+                    xoffset: 0.0,
+                    yoffset: 0.0,
+                    scale: 3.0,
+                    grid: Vec2D::new(60, 72, 0.0),
+                }
+                .to_file(&fs, folder.join("xyz2.hmap"))
+                .unwrap();
+                let mut writer =
+                    XyzInternalWriter::new(fs.create(folder.join("xyztemp.xyz.bin")).unwrap());
+                for (x, y) in [(19.0, 19.0), (163.0, 181.0)] {
+                    let point = XyzRecord {
+                        x,
+                        y,
+                        z: 0.6,
+                        classification: 1,
+                        number_of_returns: 1,
+                        return_number: 1,
+                        ..Default::default()
+                    };
+                    writer.write_records(&[point]).unwrap();
+                    if category == 0x01 {
+                        writer
+                            .write_records(&[XyzRecord {
+                                z: 0.0,
+                                classification: 2,
+                                ..point
+                            }])
+                            .unwrap();
+                    }
+                }
+                drop(writer.finish().unwrap());
+                makevege(&fs, &config, folder).unwrap();
+                let sibling = fs
+                    .read_image_png(folder.join("vegetation_bit.png"))
+                    .unwrap();
+                outputs.push(UndergrowthOutput {
+                    category,
+                    scalefactor,
+                    image: fs
+                        .read_image_png(folder.join("undergrowth_bit.png"))
+                        .unwrap()
+                        .to_luma8(),
+                    dimensions: (sibling.width(), sibling.height()),
+                });
+            }
+            outputs
+        })
+    }
+
+    #[test]
+    fn undergrowth_bit_marks_survive_metre_export() {
+        assert_metre_export(0x01);
+    }
+
+    #[test]
+    fn undergrowth_bit_dense_marks_survive_metre_export() {
+        assert_metre_export(0x02);
+    }
+
+    fn assert_metre_export(category: u8) {
+        for output in undergrowth_outputs()
+            .iter()
+            .filter(|output| output.category == category)
+        {
+            let (width, height) = output.dimensions;
+            let mut exported = GrayImage::new(width, height);
+            image::imageops::overlay(&mut exported, &output.image, 0, 0);
+            for (x, y) in [(18, 198), (162, 36)] {
+                assert_eq!(
+                    exported.get_pixel(x, y).0[0],
+                    category,
+                    "A: category {category:#04x} lost at ({x}, {y})"
+                );
+            }
+            assert!(exported.pixels().all(|p| [0, category].contains(&p.0[0])));
+        }
+    }
+
+    #[test]
+    fn undergrowth_bit_light_footprint_tracks_production_factor() {
+        assert_production_footprint(0x01, 1.0, 24, 0);
+    }
+
+    #[test]
+    fn undergrowth_bit_dense_footprint_tracks_production_factor() {
+        assert_production_footprint(0x02, 1.0, 24, 0);
+    }
+
+    #[test]
+    fn undergrowth_bit_light_footprint_tracks_coarse_production_factor() {
+        assert_production_footprint(0x01, 4.0, 50, 0x01);
+    }
+
+    #[test]
+    fn undergrowth_bit_dense_footprint_tracks_coarse_production_factor() {
+        assert_production_footprint(0x02, 4.0, 50, 0x02);
+    }
+
+    fn assert_production_footprint(category: u8, scalefactor: f64, offset: i32, expected: u8) {
+        let output = undergrowth_outputs()
+            .iter()
+            .find(|output| output.category == category && output.scalefactor == scalefactor)
+            .unwrap();
+        // Probe outside the default footprint and inside the coarse footprint after filtering.
+        for (x, y, direction) in [(18, 198, 1), (162, 36, -1)] {
+            assert_eq!(
+                output.image.get_pixel((x + direction * offset) as u32, y).0[0],
+                expected,
+                "C: production footprint category {category:#04x}, scale {scalefactor}, ({x}, {y})"
+            );
+        }
+    }
+
+    #[test]
+    fn undergrowth_bit_dimensions_match_siblings() {
+        for output in undergrowth_outputs() {
+            assert_eq!(
+                output.image.dimensions(),
+                output.dimensions,
+                "B: bitmask grid mismatch"
+            );
+        }
+    }
+
+    #[test]
+    fn undergrowth_bit_circles_keep_ground_footprint_at_opposite_edges() {
+        assert_circle_footprint(1.0, 16);
+    }
+
+    #[test]
+    fn undergrowth_bit_circles_keep_ground_footprint_with_coarse_render_pixels() {
+        assert_circle_footprint(4.0, 64);
+    }
+
+    fn assert_circle_footprint(scalefactor: f64, radius: i32) {
+        let factor = (PX_PER_M / scalefactor) as f32;
+        for category in [0x01, 0x02] {
+            for (x, y, direction) in [(18, 198, 1), (162, 36, -1)] {
+                let mut image = GrayImage::new(180, 216);
+                draw_undergrowth_bit(&mut image, x as f32, y as f32, 3.0, factor, category);
+                assert_eq!(
+                    image.get_pixel(x as u32, y as u32).0[0],
+                    category,
+                    "A: category {category:#04x}, scale {scalefactor}, ({x}, {y})"
+                );
+                assert_eq!(
+                    image.get_pixel((x + direction * radius) as u32, y as u32).0[0],
+                    category,
+                    "radius too small: category {category:#04x}, scale {scalefactor}"
+                );
+                assert_eq!(
+                    image
+                        .get_pixel((x + direction * (radius + 1)) as u32, y as u32)
+                        .0[0],
+                    0,
+                    "radius too large: category {category:#04x}, scale {scalefactor}"
+                );
+                assert!(image.pixels().all(|p| [0, category].contains(&p.0[0])));
+            }
+        }
+    }
 }
