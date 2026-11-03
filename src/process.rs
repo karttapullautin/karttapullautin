@@ -290,29 +290,15 @@ pub fn process_zip(
         return Err(anyhow::anyhow!(SHAPEFILE_FEATURE_DISABLED).into());
     }
 
-    info!("Rendering png map with depressions");
+    info!("Rendering png maps");
     timing.start_section("Rendering png map with depressions");
-    render::render(
+    render::render_both(
         fs,
         config,
         thread,
         tmpfolder,
         pnorthlinesangle,
         pnorthlineswidth,
-        false,
-    )
-    .unwrap();
-
-    info!("Rendering png map without depressions");
-    timing.start_section("Rendering png map without depressions");
-    render::render(
-        fs,
-        config,
-        thread,
-        tmpfolder,
-        pnorthlinesangle,
-        pnorthlineswidth,
-        true,
     )
     .unwrap();
 
@@ -581,29 +567,15 @@ pub fn process_tile(
         blocks::blocks(fs, tmpfolder).unwrap();
     }
     if !skip_rendering && !vegeonly && !contoursonly && !cliffsonly {
-        info!("Rendering png map with depressions");
+        info!("Rendering png maps");
         timing.start_section("rendering png map with depressions");
-        render::render(
+        render::render_both(
             fs,
             config,
             thread,
             tmpfolder,
             pnorthlinesangle,
             pnorthlineswidth,
-            false,
-        )
-        .unwrap();
-
-        info!("Rendering png map without depressions");
-        timing.start_section("rendering png map without depressions");
-        render::render(
-            fs,
-            config,
-            thread,
-            tmpfolder,
-            pnorthlinesangle,
-            pnorthlineswidth,
-            true,
         )
         .unwrap();
     } else if contoursonly {

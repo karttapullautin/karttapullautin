@@ -12,9 +12,12 @@ use crate::palette::{
     BLACK_RGBA, CLIFF2_DEBUG_RGBA, CLIFF3_DEBUG_RGBA, CLIFF4_DEBUG_RGBA, CONTOUR_BROWN_RGBA,
     NORTH_LINE_RGBA,
 };
+use crate::util::Timing;
 use crate::vec2d::Vec2D;
+use image::DynamicImage;
 use image::ImageBuffer;
 use image::Rgba;
+use image::RgbaImage;
 use imageproc::drawing::{draw_filled_circle_mut, draw_line_segment_mut};
 use log::info;
 use std::error::Error;
@@ -22,6 +25,73 @@ use std::f64::consts::PI;
 use std::io::BufRead;
 use std::io::Write;
 use std::path::Path;
+
+type Canvas = ImageBuffer<Rgba<u8>, Vec<u8>>;
+
+/// Geometry of the map canvas, shared by every layer of one tile.
+struct Frame {
+    x0: f64,
+    y0: f64,
+    w: u32,
+    h: u32,
+    new_width: u32,
+    new_height: u32,
+}
+
+/// Renders the map with and without depressions. The layers that do not depend on the depression
+/// setting are composed once, and the heightmap and steepness are read once.
+pub fn render_both(
+    fs: &impl FileSystem,
+    config: &Config,
+    thread: &String,
+    tmpfolder: &Path,
+    angle_deg: f64,
+    nwidth: usize,
+) -> Result<(), Box<dyn Error>> {
+    let mut timing = Timing::start_now("render_both");
+    timing.start_section("base layers");
+    let (base, frame) = base_canvas(fs, config, tmpfolder, angle_deg, nwidth)?;
+    timing.start_section("curve inputs");
+    let inputs = load_curve_inputs(fs, config, tmpfolder)?;
+
+    // The depression render also writes formlines.dxf.bin, so it goes first.
+    if !config.render_nodepressions {
+        return render_one(
+            fs,
+            config,
+            thread,
+            tmpfolder,
+            base,
+            &frame,
+            &inputs,
+            false,
+            &mut timing,
+        );
+    }
+
+    render_one(
+        fs,
+        config,
+        thread,
+        tmpfolder,
+        base.clone(),
+        &frame,
+        &inputs,
+        false,
+        &mut timing,
+    )?;
+    render_one(
+        fs,
+        config,
+        thread,
+        tmpfolder,
+        base,
+        &frame,
+        &inputs,
+        true,
+        &mut timing,
+    )
+}
 
 pub fn render(
     fs: &impl FileSystem,
@@ -32,6 +102,70 @@ pub fn render(
     nwidth: usize,
     nodepressions: bool,
 ) -> Result<(), Box<dyn Error>> {
+    let mut timing = Timing::start_now("render");
+    let (base, frame) = base_canvas(fs, config, tmpfolder, angle_deg, nwidth)?;
+    let inputs = load_curve_inputs(fs, config, tmpfolder)?;
+    render_one(
+        fs,
+        config,
+        thread,
+        tmpfolder,
+        base,
+        &frame,
+        &inputs,
+        nodepressions,
+        &mut timing,
+    )
+}
+
+fn decode_png(fs: &impl FileSystem, path: &Path) -> Result<DynamicImage, Box<dyn Error>> {
+    let mut reader = image::ImageReader::new(fs.open(path)?);
+    reader.set_format(image::ImageFormat::Png);
+    reader.no_limits();
+    Ok(reader.decode()?)
+}
+
+/// Nearest-neighbour resize of the top-left `src_w` x `src_h` part of `src`.
+///
+/// Picks the same pixels as `image::imageops::resize` with `FilterType::Nearest`, but writes the
+/// output directly. The image crate goes through an f32 intermediate image, which for an upscale
+/// to a full tile costs several hundred MB and seconds per layer.
+fn resize_nearest(src: &RgbaImage, src_w: u32, src_h: u32, new_w: u32, new_h: u32) -> RgbaImage {
+    let src_w = src_w.min(src.width());
+    let src_h = src_h.min(src.height());
+    let stride = src.width() as usize * 4;
+
+    // Same arithmetic as the image crate: the source pixel is the one under the centre of the
+    // output pixel, computed in f32.
+    let ratio_x = src_w as f32 / new_w as f32;
+    let ratio_y = src_h as f32 / new_h as f32;
+    let src_cols: Vec<usize> = (0..new_w)
+        .map(|x| ((x as f32 + 0.5) * ratio_x).floor() as usize)
+        .map(|sx| sx.min(src_w as usize - 1) * 4)
+        .collect();
+
+    let raw = src.as_raw();
+    let row_len = new_w as usize * 4;
+    let mut out = vec![0u8; row_len * new_h as usize];
+    for (y, dst_row) in out.chunks_exact_mut(row_len).enumerate() {
+        let sy = (((y as f32 + 0.5) * ratio_y).floor() as usize).min(src_h as usize - 1);
+        let src_row = &raw[sy * stride..];
+        for (dst, &sx) in dst_row.chunks_exact_mut(4).zip(&src_cols) {
+            dst.copy_from_slice(&src_row[sx..sx + 4]);
+        }
+    }
+    RgbaImage::from_raw(new_w, new_h, out).expect("output buffer has the right size")
+}
+
+/// Vegetation, undergrowth, low ground and north lines. These come before the curves and do not
+/// depend on the depression setting, so they are drawn once per tile.
+fn base_canvas(
+    fs: &impl FileSystem,
+    config: &Config,
+    tmpfolder: &Path,
+    angle_deg: f64,
+    nwidth: usize,
+) -> Result<(Canvas, Frame), Box<dyn Error>> {
     info!("Rendering...");
 
     let scalefactor = config.scalefactor;
@@ -54,24 +188,9 @@ pub fn render(
         .parse::<f64>()
         .unwrap();
 
-    let mut img_reader = image::ImageReader::new(
-        fs.open(tmpfolder.join("vegetation.png"))
-            .expect("Opening vegetation image failed"),
-    );
-    img_reader.set_format(image::ImageFormat::Png);
-    img_reader.no_limits();
-    let img = img_reader.decode().unwrap();
-
-    let mut imgug_reader = image::ImageReader::new(
-        fs.open(tmpfolder.join("undergrowth.png"))
-            .expect("Opening undergrowth image failed"),
-    );
-    imgug_reader.set_format(image::ImageFormat::Png);
-    imgug_reader.no_limits();
-    let imgug = imgug_reader.decode().unwrap();
-
-    let w = img.width();
-    let h = img.height();
+    let vegetation = decode_png(fs, &tmpfolder.join("vegetation.png"))?.into_rgba8();
+    let w = vegetation.width();
+    let h = vegetation.height();
 
     let eastoff = -((x0 - (-angle).tan() * y0)
         - ((x0 - (-angle).tan() * y0) / (250.0 / angle.cos())).floor() * (250.0 / angle.cos()))
@@ -79,35 +198,23 @@ pub fn render(
 
     let new_width = (w as f64 * PX_PER_M / scalefactor) as u32;
     let new_height = (h as f64 * PX_PER_M / scalefactor) as u32;
-    let mut img = image::imageops::resize(
-        &img,
+    let mut img = resize_nearest(&vegetation, w, h, new_width, new_height);
+    drop(vegetation);
+
+    let undergrowth = decode_png(fs, &tmpfolder.join("undergrowth.png"))?.into_rgba8();
+    let imgug = resize_nearest(
+        &undergrowth,
+        undergrowth.width(),
+        undergrowth.height(),
         new_width,
         new_height,
-        image::imageops::FilterType::Nearest,
     );
-
-    let imgug = image::imageops::resize(
-        &imgug,
-        new_width,
-        new_height,
-        image::imageops::FilterType::Nearest,
-    );
-
     image::imageops::overlay(&mut img, &imgug, 0, 0);
 
     let low_file = tmpfolder.join("low.png");
     if fs.exists(&low_file) {
-        let mut low_reader =
-            image::ImageReader::new(fs.open(low_file).expect("Opening low image failed"));
-        low_reader.set_format(image::ImageFormat::Png);
-        low_reader.no_limits();
-        let low = low_reader.decode().unwrap();
-        let low = image::imageops::resize(
-            &low,
-            new_width,
-            new_height,
-            image::imageops::FilterType::Nearest,
-        );
+        let low = decode_png(fs, &low_file)?.into_rgba8();
+        let low = resize_nearest(&low, low.width(), low.height(), new_width, new_height);
         image::imageops::overlay(&mut img, &low, 0, 0);
     }
 
@@ -131,109 +238,41 @@ pub fn render(
         }
     }
 
-    draw_curves(fs, config, &mut img, tmpfolder, nodepressions, true).unwrap();
-
-    // dotknolls----------
-    let input = tmpfolder.join("dotknolls.dxf.bin");
-    let data = BinaryDxf::from_reader(&mut fs.open(input)?)?;
-    let Geometry::Points(points) = data.take_geometry().swap_remove(0) else {
-        return Err(anyhow::anyhow!("dotknolls.dxf.bin should contain points").into());
+    let frame = Frame {
+        x0,
+        y0,
+        w,
+        h,
+        new_width,
+        new_height,
     };
+    Ok((img, frame))
+}
 
-    for (point, layer) in points.iter() {
-        if *layer != Classification::Dotknoll {
-            continue;
-        }
+/// Draws the curves and the layers above them, then writes one map.
+#[allow(clippy::too_many_arguments)]
+fn render_one(
+    fs: &impl FileSystem,
+    config: &Config,
+    thread: &String,
+    tmpfolder: &Path,
+    mut img: Canvas,
+    frame: &Frame,
+    inputs: &CurveInputs,
+    nodepressions: bool,
+    timing: &mut Timing,
+) -> Result<(), Box<dyn Error>> {
+    timing.start_section(if nodepressions {
+        "curves without depressions"
+    } else {
+        "curves with depressions"
+    });
+    draw_curves_with(fs, config, &mut img, tmpfolder, nodepressions, true, inputs)?;
 
-        // convert point to image coordinates
-        let x = (point.x - x0) * PX_PER_M / scalefactor;
-        let y = (y0 - point.y) * PX_PER_M / scalefactor;
+    timing.start_section("layers above curves");
+    draw_overlays(fs, config, tmpfolder, &mut img, frame)?;
 
-        let color = CONTOUR_BROWN_RGBA;
-        draw_filled_circle_mut(&mut img, (x as i32, y as i32), 7, color)
-    }
-    // blocks -------------
-    let blocks_file = tmpfolder.join("blocks.png");
-    if fs.exists(&blocks_file) {
-        let mut blockpurple_reader =
-            image::ImageReader::new(fs.open(blocks_file).expect("Opening blocks image failed"));
-        blockpurple_reader.set_format(image::ImageFormat::Png);
-        blockpurple_reader.no_limits();
-        let blockpurple = blockpurple_reader.decode().unwrap();
-        let mut blockpurple = blockpurple.to_rgba8();
-        for p in blockpurple.pixels_mut() {
-            if p[0] == 255 && p[1] == 255 && p[2] == 255 {
-                p[3] = 0;
-            }
-        }
-        let blockpurple = image::imageops::crop(&mut blockpurple, 0, 0, w, h).to_image();
-        let blockpurple_thumb = image::imageops::resize(
-            &blockpurple,
-            new_width,
-            new_height,
-            image::imageops::FilterType::Nearest,
-        );
-
-        for i in 0..3 {
-            for j in 0..3 {
-                image::imageops::overlay(
-                    &mut img,
-                    &blockpurple_thumb,
-                    (i as i64 - 1) * 2,
-                    (j as i64 - 1) * 2,
-                );
-            }
-        }
-        image::imageops::overlay(&mut img, &blockpurple_thumb, 0, 0);
-    }
-    // blueblack -------------
-    let blueblack_file = tmpfolder.join("blueblack.png");
-    if fs.exists(&blueblack_file) {
-        let mut imgbb_reader = image::ImageReader::new(
-            fs.open(blueblack_file)
-                .expect("Opening blueblack image failed"),
-        );
-        imgbb_reader.set_format(image::ImageFormat::Png);
-        imgbb_reader.no_limits();
-        let imgbb = imgbb_reader.decode().unwrap();
-        let mut imgbb = imgbb.to_rgba8();
-        for p in imgbb.pixels_mut() {
-            if p[0] == 255 && p[1] == 255 && p[2] == 255 {
-                p[3] = 0;
-            }
-        }
-        let imgbb = image::imageops::crop(&mut imgbb, 0, 0, w, h).to_image();
-        let imgbb_thumb = image::imageops::resize(
-            &imgbb,
-            new_width,
-            new_height,
-            image::imageops::FilterType::Nearest,
-        );
-        image::imageops::overlay(&mut img, &imgbb_thumb, 0, 0);
-    }
-
-    draw_cliffs(fs, config, tmpfolder, "c2g.dxf.bin", &mut img, x0, y0)
-        .expect("draw cliffs c2g.dxf.bin");
-    draw_cliffs(fs, config, tmpfolder, "c3g.dxf.bin", &mut img, x0, y0)
-        .expect("draw cliffs c3g.dxf.bin");
-
-    // high -------------
-    let high_file = tmpfolder.join("high.png");
-    if fs.exists(&high_file) {
-        let mut high_reader =
-            image::ImageReader::new(fs.open(high_file).expect("Opening high image failed"));
-        high_reader.set_format(image::ImageFormat::Png);
-        high_reader.no_limits();
-        let high = high_reader.decode().unwrap();
-        let high_thumb = image::imageops::resize(
-            &high,
-            new_width,
-            new_height,
-            image::imageops::FilterType::Nearest,
-        );
-        image::imageops::overlay(&mut img, &high_thumb, 0, 0);
-    }
-
+    timing.start_section("write png");
     let filename = if nodepressions {
         format!("pullautus{thread}")
     } else {
@@ -258,14 +297,112 @@ pub fn render(
             let ip = line.unwrap_or(String::new());
             let x: f64 = ip.parse::<f64>().unwrap();
             if i == 0 || i == 3 {
-                write!(&mut pgw_file_out, "{}\r\n", x / PX_PER_M * scalefactor)
-                    .expect("Unable to write to file");
+                write!(
+                    &mut pgw_file_out,
+                    "{}\r\n",
+                    x / PX_PER_M * config.scalefactor
+                )
+                .expect("Unable to write to file");
             } else {
                 write!(&mut pgw_file_out, "{ip}\r\n").expect("Unable to write to file");
             }
         }
     }
     info!("Done");
+    Ok(())
+}
+
+/// Dot knolls, buildings, blue-black layer, cliffs and high ground, drawn over the curves.
+fn draw_overlays(
+    fs: &impl FileSystem,
+    config: &Config,
+    tmpfolder: &Path,
+    img: &mut Canvas,
+    frame: &Frame,
+) -> Result<(), Box<dyn Error>> {
+    let scalefactor = config.scalefactor;
+    let &Frame {
+        x0,
+        y0,
+        w,
+        h,
+        new_width,
+        new_height,
+    } = frame;
+
+    // dotknolls----------
+    let input = tmpfolder.join("dotknolls.dxf.bin");
+    let data = BinaryDxf::from_reader(&mut fs.open(input)?)?;
+    let Geometry::Points(points) = data.take_geometry().swap_remove(0) else {
+        return Err(anyhow::anyhow!("dotknolls.dxf.bin should contain points").into());
+    };
+
+    for (point, layer) in points.iter() {
+        if *layer != Classification::Dotknoll {
+            continue;
+        }
+
+        // convert point to image coordinates
+        let x = (point.x - x0) * PX_PER_M / scalefactor;
+        let y = (y0 - point.y) * PX_PER_M / scalefactor;
+
+        let color = CONTOUR_BROWN_RGBA;
+        draw_filled_circle_mut(img, (x as i32, y as i32), 7, color)
+    }
+
+    // blocks -------------
+    let blocks_file = tmpfolder.join("blocks.png");
+    if fs.exists(&blocks_file) {
+        let blockpurple_thumb = {
+            let mut full = decode_png(fs, &blocks_file)?.into_rgba8();
+            for p in full.pixels_mut() {
+                if p[0] == 255 && p[1] == 255 && p[2] == 255 {
+                    p[3] = 0;
+                }
+            }
+            resize_nearest(&full, w, h, new_width, new_height)
+        };
+
+        for i in 0..3 {
+            for j in 0..3 {
+                image::imageops::overlay(
+                    img,
+                    &blockpurple_thumb,
+                    (i as i64 - 1) * 2,
+                    (j as i64 - 1) * 2,
+                );
+            }
+        }
+        image::imageops::overlay(img, &blockpurple_thumb, 0, 0);
+    }
+
+    // blueblack -------------
+    let blueblack_file = tmpfolder.join("blueblack.png");
+    if fs.exists(&blueblack_file) {
+        let imgbb_thumb = {
+            let mut full = decode_png(fs, &blueblack_file)?.into_rgba8();
+            for p in full.pixels_mut() {
+                if p[0] == 255 && p[1] == 255 && p[2] == 255 {
+                    p[3] = 0;
+                }
+            }
+            resize_nearest(&full, w, h, new_width, new_height)
+        };
+        image::imageops::overlay(img, &imgbb_thumb, 0, 0);
+    }
+
+    draw_cliffs(fs, config, tmpfolder, "c2g.dxf.bin", img, x0, y0)
+        .expect("draw cliffs c2g.dxf.bin");
+    draw_cliffs(fs, config, tmpfolder, "c3g.dxf.bin", img, x0, y0)
+        .expect("draw cliffs c3g.dxf.bin");
+
+    // high -------------
+    let high_file = tmpfolder.join("high.png");
+    if fs.exists(&high_file) {
+        let high = decode_png(fs, &high_file)?.into_rgba8();
+        let high_thumb = resize_nearest(&high, high.width(), high.height(), new_width, new_height);
+        image::imageops::overlay(img, &high_thumb, 0, 0);
+    }
     Ok(())
 }
 
@@ -347,48 +484,34 @@ fn draw_cliffs(
     Ok(())
 }
 
-pub fn draw_curves(
+/// Heightmap and formline steepness of a tile. Both renders of a tile use the same values, so
+/// they are read once.
+struct CurveInputs {
+    hmap: HeightMap,
+    steepness: Vec2D<f64>,
+}
+
+fn load_curve_inputs(
     fs: &impl FileSystem,
     config: &Config,
-    canvas: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
     tmpfolder: &Path,
-    nodepressions: bool,
-    draw_image: bool,
-) -> Result<(), Box<dyn Error>> {
-    // Drawing curves --------------
+) -> Result<CurveInputs, Box<dyn Error>> {
     let &Config {
         scalefactor,
         mut formlinesteepness,
         formline,
-        formlineaddition,
-        dashlength,
-        gaplength,
-        minimumgap,
-        label_depressions,
-        remove_touching_contours,
         ..
     } = config;
     formlinesteepness *= scalefactor;
-
-    let mut size: f64 = 0.0;
-    let mut xstart: f64 = 0.0;
-    let mut ystart: f64 = 0.0;
 
     let heightmap_in = tmpfolder.join("xyz2.hmap");
     let mut reader = fs.open(heightmap_in)?;
     let hmap = HeightMap::from_bytes(&mut reader)?;
 
     let xyz = &hmap.grid;
-    let x0 = hmap.minx();
-    let y0 = hmap.maxy();
-
     let mut steepness = Vec2D::new(xyz.width(), xyz.height(), 0f64);
 
     if formline > 0.0 {
-        xstart = hmap.xoffset;
-        ystart = hmap.yoffset;
-        size = hmap.scale;
-
         let sxmax = hmap.grid.width() - 1;
         let symax = hmap.grid.height() - 1;
 
@@ -488,6 +611,69 @@ pub fn draw_curves(
                 steepness[(i, j)] = val;
             }
         }
+    }
+
+    Ok(CurveInputs { hmap, steepness })
+}
+
+pub fn draw_curves(
+    fs: &impl FileSystem,
+    config: &Config,
+    canvas: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
+    tmpfolder: &Path,
+    nodepressions: bool,
+    draw_image: bool,
+) -> Result<(), Box<dyn Error>> {
+    let inputs = load_curve_inputs(fs, config, tmpfolder)?;
+    draw_curves_with(
+        fs,
+        config,
+        canvas,
+        tmpfolder,
+        nodepressions,
+        draw_image,
+        &inputs,
+    )
+}
+
+fn draw_curves_with(
+    fs: &impl FileSystem,
+    config: &Config,
+    canvas: &mut ImageBuffer<Rgba<u8>, Vec<u8>>,
+    tmpfolder: &Path,
+    nodepressions: bool,
+    draw_image: bool,
+    inputs: &CurveInputs,
+) -> Result<(), Box<dyn Error>> {
+    // Drawing curves --------------
+    let &Config {
+        scalefactor,
+        mut formlinesteepness,
+        formline,
+        formlineaddition,
+        dashlength,
+        gaplength,
+        minimumgap,
+        label_depressions,
+        remove_touching_contours,
+        ..
+    } = config;
+    formlinesteepness *= scalefactor;
+
+    let mut size: f64 = 0.0;
+    let mut xstart: f64 = 0.0;
+    let mut ystart: f64 = 0.0;
+
+    let hmap = &inputs.hmap;
+    let xyz = &hmap.grid;
+    let x0 = hmap.minx();
+    let y0 = hmap.maxy();
+    let steepness = &inputs.steepness;
+
+    if formline > 0.0 {
+        xstart = hmap.xoffset;
+        ystart = hmap.yoffset;
+        size = hmap.scale;
     }
 
     // read the binary file
@@ -921,4 +1107,41 @@ pub fn draw_curves(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_image(w: u32, h: u32) -> RgbaImage {
+        RgbaImage::from_fn(w, h, |x, y| {
+            Rgba([
+                (x * 7 + y * 13) as u8,
+                (x * 3) as u8 ^ (y as u8),
+                (x + y * 5) as u8,
+                (x * y) as u8,
+            ])
+        })
+    }
+
+    #[test]
+    fn resize_nearest_matches_image_crate() {
+        let src = test_image(37, 23);
+        for (nw, nh) in [(37, 23), (91, 57), (17, 11), (100, 1), (1, 50), (255, 199)] {
+            let expected =
+                image::imageops::resize(&src, nw, nh, image::imageops::FilterType::Nearest);
+            assert_eq!(resize_nearest(&src, 37, 23, nw, nh), expected, "{nw}x{nh}");
+        }
+    }
+
+    #[test]
+    fn resize_nearest_uses_only_the_cropped_part() {
+        let src = test_image(40, 30);
+        let cropped = image::imageops::crop(&mut src.clone(), 0, 0, 20, 10).to_image();
+        for (nw, nh) in [(60, 45), (20, 10), (7, 33)] {
+            let expected =
+                image::imageops::resize(&cropped, nw, nh, image::imageops::FilterType::Nearest);
+            assert_eq!(resize_nearest(&src, 20, 10, nw, nh), expected, "{nw}x{nh}");
+        }
+    }
 }

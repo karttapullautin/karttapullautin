@@ -75,26 +75,14 @@ fn main() {
     let pnorthlineswidth = config.pnorthlineswidth;
 
     if command.is_empty() && fs.exists(tmpfolder.join("vegetation.png")) && !batch {
-        info!("Rendering png map with depressions");
-        pullauta::render::render(
+        info!("Rendering png maps");
+        pullauta::render::render_both(
             &fs,
             &config,
             &thread,
             &tmpfolder,
             pnorthlinesangle,
             pnorthlineswidth,
-            false,
-        )
-        .unwrap();
-        info!("Rendering png map without depressions");
-        pullauta::render::render(
-            &fs,
-            &config,
-            &thread,
-            &tmpfolder,
-            pnorthlinesangle,
-            pnorthlineswidth,
-            true,
         )
         .unwrap();
         info!("\nAll done!");
