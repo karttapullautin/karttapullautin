@@ -15,7 +15,9 @@ use crate::palette::{
 use crate::util::Timing;
 use crate::vec2d::Vec2D;
 use image::DynamicImage;
+use image::GenericImageView;
 use image::ImageBuffer;
+use image::Pixel;
 use image::Rgba;
 use image::RgbaImage;
 use imageproc::drawing::{draw_filled_circle_mut, draw_line_segment_mut};
@@ -55,31 +57,24 @@ pub fn render_both(
     let inputs = load_curve_inputs(fs, config, tmpfolder)?;
 
     // The depression render also writes formlines.dxf.bin, so it goes first.
-    if !config.render_nodepressions {
-        return render_one(
-            fs,
-            config,
-            thread,
-            tmpfolder,
-            base,
-            &frame,
-            &inputs,
-            false,
-            &mut timing,
-        );
-    }
-
     render_one(
         fs,
         config,
         thread,
         tmpfolder,
-        base.clone(),
+        base,
         &frame,
         &inputs,
         false,
         &mut timing,
     )?;
+    if !config.render_nodepressions {
+        return Ok(());
+    }
+
+    // The base is built again rather than kept: keeping a copy costs a full canvas of memory.
+    timing.start_section("base layers again");
+    let (base, frame) = base_canvas(fs, config, tmpfolder, angle_deg, nwidth)?;
     render_one(
         fs,
         config,
@@ -125,36 +120,98 @@ fn decode_png(fs: &impl FileSystem, path: &Path) -> Result<DynamicImage, Box<dyn
     Ok(reader.decode()?)
 }
 
-/// Nearest-neighbour resize of the top-left `src_w` x `src_h` part of `src`.
+/// A source image seen through nearest-neighbour scaling to the canvas size. Pixels are read from
+/// the source when they are needed, so the scaled image is never built.
 ///
-/// Picks the same pixels as `image::imageops::resize` with `FilterType::Nearest`, but writes the
-/// output directly. The image crate goes through an f32 intermediate image, which for an upscale
-/// to a full tile costs several hundred MB and seconds per layer.
-fn resize_nearest(src: &RgbaImage, src_w: u32, src_h: u32, new_w: u32, new_h: u32) -> RgbaImage {
-    let src_w = src_w.min(src.width());
-    let src_h = src_h.min(src.height());
-    let stride = src.width() as usize * 4;
+/// Picks the same pixels as `image::imageops::resize` with `FilterType::Nearest`. The crate goes
+/// through an f32 intermediate image, which costs seconds and hundreds of MB per layer.
+struct NearestView<'a> {
+    src: &'a RgbaImage,
+    cols: Vec<u32>,
+    rows: Vec<u32>,
+}
 
-    // Same arithmetic as the image crate: the source pixel is the one under the centre of the
-    // output pixel, computed in f32.
-    let ratio_x = src_w as f32 / new_w as f32;
-    let ratio_y = src_h as f32 / new_h as f32;
-    let src_cols: Vec<usize> = (0..new_w)
-        .map(|x| ((x as f32 + 0.5) * ratio_x).floor() as usize)
-        .map(|sx| sx.min(src_w as usize - 1) * 4)
-        .collect();
+impl<'a> NearestView<'a> {
+    /// `src_w` x `src_h` is the top-left part of `src` that is used, as if it had been cropped.
+    fn new(src: &'a RgbaImage, src_w: u32, src_h: u32, new_w: u32, new_h: u32) -> Self {
+        let src_w = src_w.min(src.width());
+        let src_h = src_h.min(src.height());
 
-    let raw = src.as_raw();
-    let row_len = new_w as usize * 4;
-    let mut out = vec![0u8; row_len * new_h as usize];
-    for (y, dst_row) in out.chunks_exact_mut(row_len).enumerate() {
-        let sy = (((y as f32 + 0.5) * ratio_y).floor() as usize).min(src_h as usize - 1);
-        let src_row = &raw[sy * stride..];
-        for (dst, &sx) in dst_row.chunks_exact_mut(4).zip(&src_cols) {
-            dst.copy_from_slice(&src_row[sx..sx + 4]);
-        }
+        // Same f32 arithmetic as the image crate: the source pixel is the one under the centre of
+        // the output pixel.
+        let ratio_x = src_w as f32 / new_w as f32;
+        let ratio_y = src_h as f32 / new_h as f32;
+        let cols = (0..new_w)
+            .map(|x| (((x as f32 + 0.5) * ratio_x).floor() as u32).min(src_w - 1))
+            .collect();
+        let rows = (0..new_h)
+            .map(|y| (((y as f32 + 0.5) * ratio_y).floor() as u32).min(src_h - 1))
+            .collect();
+        Self { src, cols, rows }
     }
-    RgbaImage::from_raw(new_w, new_h, out).expect("output buffer has the right size")
+
+    fn to_image(&self) -> RgbaImage {
+        RgbaImage::from_fn(self.cols.len() as u32, self.rows.len() as u32, |x, y| {
+            self.get_pixel(x, y)
+        })
+    }
+}
+
+impl GenericImageView for NearestView<'_> {
+    type Pixel = Rgba<u8>;
+
+    fn dimensions(&self) -> (u32, u32) {
+        (self.cols.len() as u32, self.rows.len() as u32)
+    }
+
+    fn get_pixel(&self, x: u32, y: u32) -> Rgba<u8> {
+        *self
+            .src
+            .get_pixel(self.cols[x as usize], self.rows[y as usize])
+    }
+}
+
+/// Blends an 8-bit RGB or RGBA PNG of the canvas size onto the canvas one row at a time, so the
+/// layer is never decoded as a whole. Returns `Ok(false)` without touching the canvas when the file
+/// is of another kind, and the caller then decodes it.
+fn overlay_png_rows(
+    fs: &impl FileSystem,
+    path: &Path,
+    canvas: &mut Canvas,
+) -> Result<bool, Box<dyn Error>> {
+    let mut decoder = png::Decoder::new(fs.open(path)?);
+    decoder.set_transformations(png::Transformations::normalize_to_color8());
+    let mut reader = decoder.read_info()?;
+
+    let (width, height, interlaced) = {
+        let info = reader.info();
+        (info.width, info.height, info.interlaced)
+    };
+    let (color, depth) = reader.output_color_type();
+    let channels = match color {
+        png::ColorType::Rgba => 4,
+        png::ColorType::Rgb => 3,
+        _ => return Ok(false),
+    };
+    if width != canvas.width()
+        || height != canvas.height()
+        || interlaced
+        || depth != png::BitDepth::Eight
+    {
+        return Ok(false);
+    }
+
+    let mut y = 0;
+    while let Some(row) = reader.next_row()? {
+        for (x, px) in row.data().chunks_exact(channels).enumerate() {
+            let alpha = if channels == 4 { px[3] } else { 255 };
+            canvas
+                .get_pixel_mut(x as u32, y)
+                .blend(&Rgba([px[0], px[1], px[2], alpha]));
+        }
+        y += 1;
+    }
+    Ok(true)
 }
 
 /// Vegetation, undergrowth, low ground and north lines. These come before the curves and do not
@@ -198,24 +255,27 @@ fn base_canvas(
 
     let new_width = (w as f64 * PX_PER_M / scalefactor) as u32;
     let new_height = (h as f64 * PX_PER_M / scalefactor) as u32;
-    let mut img = resize_nearest(&vegetation, w, h, new_width, new_height);
+    let mut img = NearestView::new(&vegetation, w, h, new_width, new_height).to_image();
     drop(vegetation);
 
-    let undergrowth = decode_png(fs, &tmpfolder.join("undergrowth.png"))?.into_rgba8();
-    let imgug = resize_nearest(
-        &undergrowth,
-        undergrowth.width(),
-        undergrowth.height(),
-        new_width,
-        new_height,
-    );
-    image::imageops::overlay(&mut img, &imgug, 0, 0);
+    let undergrowth_path = tmpfolder.join("undergrowth.png");
+    if !overlay_png_rows(fs, &undergrowth_path, &mut img)? {
+        let undergrowth = decode_png(fs, &undergrowth_path)?.into_rgba8();
+        let view = NearestView::new(
+            &undergrowth,
+            undergrowth.width(),
+            undergrowth.height(),
+            new_width,
+            new_height,
+        );
+        image::imageops::overlay(&mut img, &view, 0, 0);
+    }
 
     let low_file = tmpfolder.join("low.png");
     if fs.exists(&low_file) {
         let low = decode_png(fs, &low_file)?.into_rgba8();
-        let low = resize_nearest(&low, low.width(), low.height(), new_width, new_height);
-        image::imageops::overlay(&mut img, &low, 0, 0);
+        let view = NearestView::new(&low, low.width(), low.height(), new_width, new_height);
+        image::imageops::overlay(&mut img, &view, 0, 0);
     }
 
     // north lines ----------------
@@ -353,42 +413,33 @@ fn draw_overlays(
     // blocks -------------
     let blocks_file = tmpfolder.join("blocks.png");
     if fs.exists(&blocks_file) {
-        let blockpurple_thumb = {
-            let mut full = decode_png(fs, &blocks_file)?.into_rgba8();
-            for p in full.pixels_mut() {
-                if p[0] == 255 && p[1] == 255 && p[2] == 255 {
-                    p[3] = 0;
-                }
+        let mut full = decode_png(fs, &blocks_file)?.into_rgba8();
+        for p in full.pixels_mut() {
+            if p[0] == 255 && p[1] == 255 && p[2] == 255 {
+                p[3] = 0;
             }
-            resize_nearest(&full, w, h, new_width, new_height)
-        };
+        }
+        let blockpurple = NearestView::new(&full, w, h, new_width, new_height);
 
         for i in 0..3 {
             for j in 0..3 {
-                image::imageops::overlay(
-                    img,
-                    &blockpurple_thumb,
-                    (i as i64 - 1) * 2,
-                    (j as i64 - 1) * 2,
-                );
+                image::imageops::overlay(img, &blockpurple, (i as i64 - 1) * 2, (j as i64 - 1) * 2);
             }
         }
-        image::imageops::overlay(img, &blockpurple_thumb, 0, 0);
+        image::imageops::overlay(img, &blockpurple, 0, 0);
     }
 
     // blueblack -------------
     let blueblack_file = tmpfolder.join("blueblack.png");
     if fs.exists(&blueblack_file) {
-        let imgbb_thumb = {
-            let mut full = decode_png(fs, &blueblack_file)?.into_rgba8();
-            for p in full.pixels_mut() {
-                if p[0] == 255 && p[1] == 255 && p[2] == 255 {
-                    p[3] = 0;
-                }
+        let mut full = decode_png(fs, &blueblack_file)?.into_rgba8();
+        for p in full.pixels_mut() {
+            if p[0] == 255 && p[1] == 255 && p[2] == 255 {
+                p[3] = 0;
             }
-            resize_nearest(&full, w, h, new_width, new_height)
-        };
-        image::imageops::overlay(img, &imgbb_thumb, 0, 0);
+        }
+        let blueblack = NearestView::new(&full, w, h, new_width, new_height);
+        image::imageops::overlay(img, &blueblack, 0, 0);
     }
 
     draw_cliffs(fs, config, tmpfolder, "c2g.dxf.bin", img, x0, y0)
@@ -400,8 +451,8 @@ fn draw_overlays(
     let high_file = tmpfolder.join("high.png");
     if fs.exists(&high_file) {
         let high = decode_png(fs, &high_file)?.into_rgba8();
-        let high_thumb = resize_nearest(&high, high.width(), high.height(), new_width, new_height);
-        image::imageops::overlay(img, &high_thumb, 0, 0);
+        let view = NearestView::new(&high, high.width(), high.height(), new_width, new_height);
+        image::imageops::overlay(img, &view, 0, 0);
     }
     Ok(())
 }
@@ -1125,23 +1176,25 @@ mod tests {
     }
 
     #[test]
-    fn resize_nearest_matches_image_crate() {
+    fn nearest_view_matches_image_crate() {
         let src = test_image(37, 23);
         for (nw, nh) in [(37, 23), (91, 57), (17, 11), (100, 1), (1, 50), (255, 199)] {
             let expected =
                 image::imageops::resize(&src, nw, nh, image::imageops::FilterType::Nearest);
-            assert_eq!(resize_nearest(&src, 37, 23, nw, nh), expected, "{nw}x{nh}");
+            let got = NearestView::new(&src, 37, 23, nw, nh).to_image();
+            assert_eq!(got, expected, "{nw}x{nh}");
         }
     }
 
     #[test]
-    fn resize_nearest_uses_only_the_cropped_part() {
+    fn nearest_view_uses_only_the_cropped_part() {
         let src = test_image(40, 30);
         let cropped = image::imageops::crop(&mut src.clone(), 0, 0, 20, 10).to_image();
         for (nw, nh) in [(60, 45), (20, 10), (7, 33)] {
             let expected =
                 image::imageops::resize(&cropped, nw, nh, image::imageops::FilterType::Nearest);
-            assert_eq!(resize_nearest(&src, 20, 10, nw, nh), expected, "{nw}x{nh}");
+            let got = NearestView::new(&src, 20, 10, nw, nh).to_image();
+            assert_eq!(got, expected, "{nw}x{nh}");
         }
     }
 }
