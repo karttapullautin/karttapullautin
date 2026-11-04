@@ -566,7 +566,23 @@ pub fn process_tile(
         timing.start_section("detecting buildings");
         blocks::blocks(fs, tmpfolder).unwrap();
     }
-    if !skip_rendering && !vegeonly && !contoursonly && !cliffsonly {
+    if config.vector_output && !vegeonly && !contoursonly && !cliffsonly {
+        info!("Vector output");
+        // the formlines come from draw_curves, also without an image
+        timing.start_section("formlines");
+        let mut img = RgbaImage::from_pixel(1, 1, TRANSPARENT_BLACK_RGBA);
+        render::draw_curves(fs, config, &mut img, tmpfolder, false, false).unwrap();
+        timing.start_section("water cells");
+        vegetation::watercells(fs, config, tmpfolder).unwrap();
+        timing.start_section("dxf of the final layers");
+        for name in ["out2", "formlines", "c2g", "c3g", "dotknolls"] {
+            let bin = tmpfolder.join(format!("{name}.dxf.bin"));
+            if fs.exists(&bin) {
+                let dxf = tmpfolder.join(format!("{name}.dxf"));
+                crate::io::bin2dxf(fs, &bin.to_string_lossy(), &dxf.to_string_lossy()).unwrap();
+            }
+        }
+    } else if !skip_rendering && !vegeonly && !contoursonly && !cliffsonly {
         info!("Rendering png maps");
         timing.start_section("rendering png map with depressions");
         render::render_both(

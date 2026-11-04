@@ -3,9 +3,10 @@ use imageproc::drawing::{draw_filled_circle_mut, draw_filled_rect_mut, draw_line
 use imageproc::filter::median_filter;
 use imageproc::rect::Rect;
 use log::info;
+use rustc_hash::FxHashMap;
 use std::error::Error;
 use std::f32::consts::SQRT_2;
-use std::io::Write;
+use std::io::{BufRead, Write};
 use std::path::Path;
 
 use crate::config::{Config, Zone};
@@ -16,6 +17,52 @@ use crate::io::heightmap::HeightMap;
 use crate::io::xyz::XyzInternalReader;
 use crate::palette::{Palette, PaletteColorEnum, PalettedImage};
 use crate::vec2d::Vec2D;
+
+/// Writes `water.txt`: for the 3 m cells that contain points of the water class, one line `x y water total` (cell indices counted
+/// from the top-left corner of `vegetation.pgw`, the number of water points and of all points in the cell). The vector tiles use it to
+/// leave water out of the vegetation (pullautin shows water as open land).
+pub fn watercells(
+    fs: &impl FileSystem,
+    config: &Config,
+    tmpfolder: &Path,
+) -> Result<(), Box<dyn Error>> {
+    const CELL: f64 = 3.0;
+
+    let mut pgw = fs.open(tmpfolder.join("vegetation.pgw"))?.lines();
+    let x0: f64 = pgw
+        .nth(4)
+        .ok_or("vegetation.pgw has no x origin")??
+        .trim()
+        .parse()?;
+    let y0: f64 = pgw
+        .next()
+        .ok_or("vegetation.pgw has no y origin")??
+        .trim()
+        .parse()?;
+
+    // (water points, all points) per cell
+    let mut cells: FxHashMap<(i64, i64), (u32, u32)> = FxHashMap::default();
+    let mut reader = XyzInternalReader::new(fs.open(tmpfolder.join("xyztemp.xyz.bin"))?)?;
+    while let Some(chunk) = reader.next_chunk()? {
+        for r in chunk {
+            let cell = (((r.x - x0) / CELL) as i64, ((y0 - r.y) / CELL) as i64);
+            let counts = cells.entry(cell).or_insert((0, 0));
+            counts.1 += 1;
+            if r.classification == config.water_class {
+                counts.0 += 1;
+            }
+        }
+    }
+
+    let mut wet: Vec<_> = cells.into_iter().filter(|(_, (w, _))| *w > 0).collect();
+    wet.sort_unstable_by_key(|(cell, _)| *cell);
+    let mut out = std::io::BufWriter::new(fs.create(tmpfolder.join("water.txt"))?);
+    for ((cx, cy), (water, total)) in wet {
+        writeln!(out, "{cx} {cy} {water} {total}")?;
+    }
+    out.flush()?;
+    Ok(())
+}
 
 pub fn makevege(
     fs: &impl FileSystem,
