@@ -211,6 +211,24 @@ muotoviivoja eikä kumpuja. PMTiles-arkistossa on molemmat tasot (matalamman tas
 Yksi z13-tiili kattaa nelinkertaisen alan, mutta on kooltaan noin saman kuin z14-tiili (Tampere 31,6 kt vs 36,2 kt, Skellefteå 36,9 kt vs 26,3 kt), eli
 alaa kohden noin 4 kertaa kevyempi. Tile2:n palvelin tukee useita zoomeja arkistoissaan (tarkistaa otsikon minZ..maxZ), joten palvelimeen ei tarvittu muutosta.
 
+### 11. Hidas lohko profiloitu: leikkaus vanhempaan (`ac5fb87`)
+
+Ruotsin Skellefteån keskustalohko (10 arkkia, 62 km², 26 200 polygonia) kesti 125 s, Tampereen 81 km² 5 s. Profilointi (yksi säie): lukeminen 7,8 s,
+ruudukko 0,5 s, ääriviivat/pehmennys/union 2,6 s, **leikkaus vanhempaan 122,8 s**, yksinkertaistus ja projektio 0,6 s. Sisäkkäisen alueen leikkaus
+`geo`-kirjaston boolen-operaatiolla vanhempaansa on hidas, kun vanhempi on iso (metsä, jossa tuhansia aukkoja: kymmeniä tuhansia pisteitä) ja lapsia on tuhansia.
+
+Korjaus: lasta ei leikata, jos vanhemmalla on yli 4000 pistettä (lapsi on rasterissa vanhemman osajoukko, joten se voi työntyä pehmennetyn vanhemman
+reunan yli korkeintaan sen metrin, jonka pehmennys siirtää ääriviivaa), eikä silloin, kun lapsi on rasterissa yli 3σ:n päässä vanhemman reunasta.
+Lohko 146 s → **28 s** yhdellä säikeellä, vegetaation pinta-ala muuttui 0,0002 %. Tampereen tulos on tavu-identtinen. Kaikki 14 Ruotsin lohkoa:
+237 s → **84 s** (2 rinnakkain, 2 säiettä; CPU 470 s → 63 s).
+
+### 12. Jyrkänteiden pätkien yhdistäminen (`ac5fb87`)
+
+Pullautin piirtää jyrkänteet lyhyinä (kahden pisteen) pätkinä. Saman lajin (`cliff2`/`cliff3`/`cliff4`) pätkät, joiden päätepisteet ovat alle 2 m:n päässä
+toisistaan, yhdistetään ketjuiksi (`join_lines`: ahne, lähin päätepiste ensin hännästä ja sitten päästä) ja ketjut yksinkertaistetaan 0,5 m:llä.
+Tampere: 39 589 piirrettä / 79 178 pistettä → **6 510 / 52 054**; tiilet 4,33 → 3,81 MB raakana. Z13-yleiskuvassa jyrkänteet ovat nyt pidempiä ketjuja, joten
+25 m:n alaraja ei karsi lähes kaikkea (1 223 jyrkännettä).
+
 ## Aineisto: pistetiheys ja muut maat (mittaukset ja havainnot)
 
 Tulokset ovat havaintoja yksittäisistä alueista; **johtopäätökset ovat arvioita**, ja kynnysten säätöä ei ole kokeiltu.
@@ -304,3 +322,4 @@ Nämä eivät muuta pullautinia vaan MVT-tiilien kokoa (`proxy-server/mapant-til
 | `6a03af6`, `4437d7c` | vegetaatio usealla säikeellä, `--threads` (oletus 2) |
 | `cc843ed` | SWEREF 99 TM, `--crs` |
 | `6b61304` | z13-yleiskuvataso, `--overview-zoom` |
+| `ac5fb87` | jyrkänteiden pätkien yhdistäminen, leikkaus vain pienelle vanhemmalle |
