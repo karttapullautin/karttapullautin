@@ -73,6 +73,65 @@ fn write_tile_file(
     std::fs::write(dir.join(format!("{ty}.pbf")), bytes)
 }
 
+/// The year of the laser scanning of a sheet: the number in `scan_year.txt` of the sheet's folder (or its `temp` folder), else the two digits
+/// after the `y` that starts the sheet's name (Lantmäteriet's `y25g017-...` is 2025), else None
+pub fn sheet_scan_year(folder: &Path) -> Option<u16> {
+    let valid = |y: u16| (2000..=2063).contains(&y).then_some(y);
+    for path in [
+        folder.join("scan_year.txt"),
+        folder.join("temp").join("scan_year.txt"),
+    ] {
+        if let Ok(text) = std::fs::read_to_string(path)
+            && let Some(year) = text.split_whitespace().next().and_then(|t| t.parse().ok())
+        {
+            return valid(year);
+        }
+    }
+    let name = folder.file_name()?.to_str()?.as_bytes();
+    match name {
+        [b'y', a, b, rest @ ..]
+            if a.is_ascii_digit()
+                && b.is_ascii_digit()
+                && !rest.first().is_some_and(|c| c.is_ascii_digit()) =>
+        {
+            valid(2000 + ((a - b'0') as u16) * 10 + (b - b'0') as u16)
+        }
+        _ => None,
+    }
+}
+
+/// For each tile of a zoom the first and last scan year of the sheets that touch it (by the sheet's bounds)
+fn scan_years_by_tile(
+    sheets: &[PathBuf],
+    projection: &project::Tm35finToMercator,
+    zoom: u8,
+) -> std::collections::HashMap<(u32, u32), (u16, u16)> {
+    let mut years = std::collections::HashMap::new();
+    for sheet in sheets {
+        let (Some(year), Ok((x0, y0, x1, y1))) =
+            (sheet_scan_year(sheet), raster::sheet_bounds(sheet))
+        else {
+            continue;
+        };
+        let corners =
+            [(x0, y0), (x0, y1), (x1, y0), (x1, y1)].map(|(x, y)| projection.to_mercator(x, y));
+        let bounds = (
+            corners.iter().map(|c| c.0).fold(f64::MAX, f64::min),
+            corners.iter().map(|c| c.1).fold(f64::MAX, f64::min),
+            corners.iter().map(|c| c.0).fold(f64::MIN, f64::max),
+            corners.iter().map(|c| c.1).fold(f64::MIN, f64::max),
+        );
+        let (xs, ys) = tiler::tiles_of_bounds(bounds, zoom);
+        for tx in xs {
+            for ty in ys.clone() {
+                let e = years.entry((tx, ty)).or_insert((year, year));
+                *e = (e.0.min(year), e.1.max(year));
+            }
+        }
+    }
+    years
+}
+
 /// The folders of `runs` that hold a pullautin run (they have a `temp` folder), in name order
 fn sheet_folders(runs: &Path) -> std::io::Result<Vec<PathBuf>> {
     let mut sheets: Vec<PathBuf> = std::fs::read_dir(runs)?
@@ -143,9 +202,11 @@ pub fn build(runs: &Path, out_dir: &Path, options: &BuildOptions) -> anyhow::Res
         .map(|z| (z, features.overview()));
     if let Some((z, lighter)) = &overview {
         let tiles = tiler::index_tiles(lighter, *z);
+        let years = scan_years_by_tile(&sheets, &projection, *z);
         let builder = TileBuilder {
             features: lighter,
             zoom: *z,
+            years: Some(&years),
         };
         let mut counts = tiler::LayerCounts::default();
         for (id, tx, ty, refs) in &tiles {
@@ -168,9 +229,11 @@ pub fn build(runs: &Path, out_dir: &Path, options: &BuildOptions) -> anyhow::Res
 
     let tiles = tiler::index_tiles(&features, options.zoom);
     info!("{} tiles touched", tiles.len());
+    let years = scan_years_by_tile(&sheets, &projection, options.zoom);
     let builder = TileBuilder {
         features: &features,
         zoom: options.zoom,
+        years: Some(&years),
     };
     for (id, tx, ty, refs) in &tiles {
         let Some(bytes) = builder.build(*tx, *ty, refs, &mut stats.layer_counts) else {
@@ -238,4 +301,41 @@ pub fn build(runs: &Path, out_dir: &Path, options: &BuildOptions) -> anyhow::Res
         started.elapsed()
     );
     Ok(stats)
+}
+
+#[cfg(test)]
+mod scan_year_tests {
+    use super::*;
+
+    fn folder(name: &str) -> PathBuf {
+        let p = std::env::temp_dir().join(format!("vt_scan_year_{}_{name}", std::process::id()));
+        std::fs::create_dir_all(p.join("temp")).unwrap();
+        p
+    }
+
+    #[test]
+    fn the_scan_year_is_in_scan_year_txt_or_in_the_name_of_a_lantmateriet_sheet() {
+        let named = std::env::temp_dir().join("y25g017-71750_7825_25");
+        assert_eq!(sheet_scan_year(&named), Some(2025));
+        assert_eq!(
+            sheet_scan_year(&std::env::temp_dir().join("y20f036-70850_7550_25")),
+            Some(2020)
+        );
+        // an MML sheet name has no year
+        assert_eq!(sheet_scan_year(&std::env::temp_dir().join("M4211E1")), None);
+        // the file wins over the name, in the folder or in temp
+        let f = folder("file");
+        std::fs::write(f.join("scan_year.txt"), "2008\n").unwrap();
+        assert_eq!(sheet_scan_year(&f), Some(2008));
+        let g = folder("temp");
+        std::fs::write(g.join("temp").join("scan_year.txt"), "2019 laser").unwrap();
+        assert_eq!(sheet_scan_year(&g), Some(2019));
+        // a year the encoding cannot hold is no year
+        let h = folder("bad");
+        std::fs::write(h.join("scan_year.txt"), "1985").unwrap();
+        assert_eq!(sheet_scan_year(&h), None);
+        for p in [f, g, h] {
+            let _ = std::fs::remove_dir_all(p);
+        }
+    }
 }

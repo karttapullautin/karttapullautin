@@ -212,6 +212,39 @@ impl Layer {
     }
 }
 
+/// The scan years of a tile as one tiny empty layer, 8 bytes: the **name** of the layer is two characters that hold the first and last year of
+/// the laser scanning the tile's data comes from, `'0' + (first - 2000)` and `'0' + (last - first)` (2000-2063, a span of up to 63 years: printable
+/// ASCII), and the layer has the version field only. Two characters are what no real layer name has (`contour`, `vegetation` ...), a reader finds
+/// the layer by that, and a reader that does not know it (OpenLayers' MVT format with a `layers` list, mapbox-vector-tile) takes it for an empty layer.
+/// Tiles of two archives merged into one by the tile server keep both layers (different names are not merged); the reader takes the union.
+/// Returns the bytes to append to a tile (the layer with its field tag and length), None for years the encoding does not hold.
+pub fn scan_years_layer(first: u16, last: u16) -> Option<Vec<u8>> {
+    if !(2000..=2063).contains(&first) || last < first || last - first > 63 {
+        return None;
+    }
+    let mut layer = Vec::new();
+    write_bytes(
+        &mut layer,
+        1,
+        &[b'0' + (first - 2000) as u8, b'0' + (last - first) as u8],
+    );
+    layer.extend_from_slice(&[15 << 3, 2]); // version 2
+    let mut out = Vec::new();
+    write_bytes(&mut out, 3, &layer);
+    Some(out)
+}
+
+/// The years of a layer name made by `scan_years_layer`
+pub fn scan_years_of_layer_name(name: &[u8]) -> Option<(u16, u16)> {
+    match name {
+        [a, b] if (b'0'..=b'o').contains(a) && (b'0'..=b'o').contains(b) => {
+            let first = 2000 + (a - b'0') as u16;
+            Some((first, first + (b - b'0') as u16))
+        }
+        _ => None,
+    }
+}
+
 /// The bytes of a tile (not compressed). Empty layers are left out.
 pub fn encode_tile(layers: &[Layer]) -> Vec<u8> {
     let mut buf = Vec::new();
@@ -474,5 +507,36 @@ mod tests {
         // clockwise on screen (y down): right, down, left
         assert!(ring_area2(&[(0, 0), (10, 0), (10, 10), (0, 10)]) > 0);
         assert!(ring_area2(&[(0, 0), (0, 10), (10, 10), (10, 0)]) < 0);
+    }
+}
+
+#[cfg(test)]
+mod scan_years_tests {
+    use super::*;
+
+    #[test]
+    fn the_scan_years_layer_is_under_10_bytes_and_decodes() {
+        let bytes = scan_years_layer(2022, 2026).unwrap();
+        assert!(bytes.len() < 10, "{} bytes", bytes.len());
+        assert_eq!(bytes.len(), 8);
+        // tile field 3, length 6: name (field 1, 2 bytes), version (field 15) 2
+        assert_eq!(bytes[0], 3 << 3 | 2);
+        assert_eq!(bytes[1], 6);
+        assert_eq!(&bytes[2..4], &[0x0A, 2]);
+        assert_eq!(scan_years_of_layer_name(&bytes[4..6]), Some((2022, 2026)));
+        assert_eq!(&bytes[6..8], &[15 << 3, 2]);
+        assert_eq!(
+            scan_years_of_layer_name(&scan_years_layer(2008, 2008).unwrap()[4..6]),
+            Some((2008, 2008))
+        );
+    }
+
+    #[test]
+    fn years_the_encoding_does_not_hold_are_left_out() {
+        assert!(scan_years_layer(1999, 2000).is_none());
+        assert!(scan_years_layer(2064, 2064).is_none());
+        assert!(scan_years_layer(2026, 2025).is_none());
+        assert!(scan_years_of_layer_name(b"contour").is_none());
+        assert!(scan_years_of_layer_name(b"~~").is_none());
     }
 }

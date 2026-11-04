@@ -229,6 +229,15 @@ toisistaan, yhdistetään ketjuiksi (`join_lines`: ahne, lähin päätepiste ens
 Tampere: 39 589 piirrettä / 79 178 pistettä → **6 510 / 52 054**; tiilet 4,33 → 3,81 MB raakana. Z13-yleiskuvassa jyrkänteet ovat nyt pidempiä ketjuja, joten
 25 m:n alaraja ei karsi lähes kaikkea (1 223 jyrkännettä).
 
+### 13. Skannausvuodet tiileissä: 8 tavua per tiili
+
+Jokainen tiili kantaa kattamiensa lehtien ensimmäisen ja viimeisen laserkeilausvuoden (attribuutiolaatikkoa varten: "Laserkeilaus 2022–2026"). Vuodet ovat
+**yhdessä tyhjässä kerroksessa, jonka nimi on kaksi merkkiä**: `'0' + (ensimmäinen − 2000)` ja `'0' + (viimeinen − ensimmäinen)` (2000–2063, väli enintään 63 vuotta),
+ja kerroksessa on vain versiokenttä: tiilen kenttätunniste ja pituus 2 tavua, nimi 4, versio 2 = **8 tavua** (`mvt::scan_years_layer`, testi tarkistaa pituuden alle 10).
+Kahden merkin nimeä ei ole millään oikealla kerroksella, OpenLayersin MVT-lukija (`layers`-lista) ei lue sitä, ja palvelimen yhdistäminen säilyttää eri nimiset
+kerrokset, joten kahden arkiston reunatiilessä on molemmat (lukija ottaa yhdisteen). Lehden vuosi: `scan_year.txt` lehden kansiossa tai Lantmäteriet-lehden nimen alku
+`yYY` (`y25g017-…` = 2025). Mitattu: Tampere z14-tiili 60 079 → 60 087 tavua, z13 +8; Ruotsin lohkojen koko ei muutu (<0,01 %).
+
 ## Aineisto: pistetiheys ja muut maat (mittaukset ja havainnot)
 
 Tulokset ovat havaintoja yksittäisistä alueista; **johtopäätökset ovat arvioita**, ja kynnysten säätöä ei ole kokeiltu.
@@ -323,3 +332,4 @@ Nämä eivät muuta pullautinia vaan MVT-tiilien kokoa (`proxy-server/mapant-til
 | `cc843ed` | SWEREF 99 TM, `--crs` |
 | `6b61304` | z13-yleiskuvataso, `--overview-zoom` |
 | `ac5fb87` | jyrkänteiden pätkien yhdistäminen, leikkaus vain pienelle vanhemmalle |
+| (seuraava) | skannausvuodet tiileissä |

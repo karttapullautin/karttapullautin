@@ -63,6 +63,18 @@ fn read_pgw(path: &Path) -> anyhow::Result<(i64, i64)> {
     Ok((v[4].round() as i64, v[5].round() as i64))
 }
 
+/// The map coordinates of a sheet's raster: (min x, min y, max x, max y), from `vegetation.pgw` and the size in the PNG header
+pub fn sheet_bounds(folder: &Path) -> anyhow::Result<(f64, f64, f64, f64)> {
+    let temp = folder.join("temp");
+    let (x0, y0) = read_pgw(&temp.join("vegetation.pgw"))?;
+    let reader = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(
+        temp.join("vegetation.png"),
+    )?))
+    .read_info()?;
+    let (w, h) = (reader.info().width as f64, reader.info().height as f64);
+    Ok((x0 as f64, y0 as f64 - h, x0 as f64 + w, y0 as f64))
+}
+
 fn read_sheet(folder: &Path) -> anyhow::Result<Sheet> {
     let temp = folder.join("temp");
     let (x0, y0) = read_pgw(&temp.join("vegetation.pgw"))?;

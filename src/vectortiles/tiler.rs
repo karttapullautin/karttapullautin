@@ -96,6 +96,22 @@ fn bounds_of(points: impl Iterator<Item = (f64, f64)>) -> Option<Rect> {
     r
 }
 
+/// The tiles that world metres bounds (min x, min y, max x, max y) touch at a zoom
+pub fn tiles_of_bounds(
+    (minx, miny, maxx, maxy): (f64, f64, f64, f64),
+    zoom: u8,
+) -> (std::ops::RangeInclusive<u32>, std::ops::RangeInclusive<u32>) {
+    tiles_of(
+        &Rect {
+            minx,
+            miny,
+            maxx,
+            maxy,
+        },
+        zoom,
+    )
+}
+
 /// Which tiles a feature with these bounds touches
 fn tiles_of(
     bounds: &Rect,
@@ -294,6 +310,8 @@ fn polygon_to_mvt(polygon: &Polygon<f64>, tile: &Rect, size: f64) -> Option<mvt:
 pub struct TileBuilder<'a> {
     pub features: &'a Features,
     pub zoom: u8,
+    /// the first and last scan year of the data of each tile (`mvt::scan_years_layer`), None = not told
+    pub years: Option<&'a std::collections::HashMap<(u32, u32), (u16, u16)>>,
 }
 
 /// How many features each layer of the encoded tiles got
@@ -386,7 +404,13 @@ impl TileBuilder<'_> {
         if layers.iter().all(|l| l.is_empty()) {
             return None;
         }
-        Some(mvt::encode_tile(&layers))
+        let mut bytes = mvt::encode_tile(&layers);
+        if let Some((first, last)) = self.years.and_then(|y| y.get(&(tx, ty))).copied()
+            && let Some(layer) = mvt::scan_years_layer(first, last)
+        {
+            bytes.extend_from_slice(&layer);
+        }
+        Some(bytes)
     }
 }
 
