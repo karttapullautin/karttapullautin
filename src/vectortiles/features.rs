@@ -181,7 +181,9 @@ pub fn cluster_cliffs(
     let n = pieces.len();
     let mut parent: Vec<usize> = (0..n).collect();
     let cell = |p: (f64, f64)| ((p.0 / gap).floor() as i64, (p.1 / gap).floor() as i64);
-    let mut grid: HashMap<(i64, i64), Vec<(usize, (f64, f64))>> = HashMap::new();
+    // the vertices of the pieces by grid cell: (piece, vertex)
+    type VertexGrid = HashMap<(i64, i64), Vec<(usize, (f64, f64))>>;
+    let mut grid: VertexGrid = HashMap::new();
     for (i, (points, _)) in pieces.iter().enumerate() {
         for &p in points {
             grid.entry(cell(p)).or_default().push((i, p));
