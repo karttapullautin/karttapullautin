@@ -353,21 +353,46 @@ pub fn grid2contours(heightmap: &Vec2D<f64>, cinterval: f64) -> Vec<Vec<(f64, f6
     let v = cinterval;
 
     // we start at the first level that is above hmin (anything below that will just have empty contours)
+    let mut levels = Vec::<f64>::new();
     let mut level: f64 = (hmin / v).ceil() * v;
+    while level < hmax {
+        levels.push(level);
+        level += v;
+    }
+
+    // Bucket the cells by the levels they can cross, so that each level only visits its own cells
+    // (in the same i, j order as a full scan would) instead of the whole grid.
+    let (width, height) = (avg_alt.width(), avg_alt.height());
+    let mut buckets: Vec<Vec<u32>> = vec![Vec::new(); levels.len()];
+    for i in 0..width.saturating_sub(1) {
+        for j in 0..height.saturating_sub(1) {
+            let corners = [
+                avg_alt[(i, j)],
+                avg_alt[(i, j + 1)],
+                avg_alt[(i + 1, j)],
+                avg_alt[(i + 1, j + 1)],
+            ];
+            let lo = corners.iter().cloned().fold(f64::MAX, f64::min);
+            let hi = corners.iter().cloned().fold(f64::MIN, f64::max);
+            // a cell is skipped at a level when all corners are below or all above it
+            let first = levels.partition_point(|&l| l < lo);
+            let last = levels.partition_point(|&l| l <= hi);
+            for bucket in &mut buckets[first..last] {
+                bucket.push((i * height + j) as u32);
+            }
+        }
+    }
 
     let mut polylines = Vec::<Vec<(f64, f64)>>::new();
 
-    loop {
-        if level >= hmax {
-            break;
-        }
-
+    for (level_index, &level) in levels.iter().enumerate() {
         let mut obj = Vec::<(i64, i64, u8)>::new();
         let mut curves: HashMap<(i64, i64, u8), (i64, i64)> = HashMap::default();
 
-        // iterate over all "corners" of the grid
-        for i in 0..(avg_alt.width() - 1) {
-            for j in 0..(avg_alt.height() - 1) {
+        // iterate over the "corners" of the grid that this level can cross
+        for &cell in &buckets[level_index] {
+            let (i, j) = (cell as usize / height, cell as usize % height);
+            {
                 let mut a = avg_alt[(i, j)];
                 let mut b = avg_alt[(i, j + 1)];
                 let mut c = avg_alt[(i + 1, j)];
@@ -570,7 +595,6 @@ pub fn grid2contours(heightmap: &Vec2D<f64>, cinterval: f64) -> Vec<Vec<(f64, f6
                 }
             }
         }
-        level += v;
     }
 
     polylines
