@@ -30,7 +30,7 @@ impl Default for BuildOptions {
         Self {
             zoom: 14,
             tile_files: true,
-            threads: 0,
+            threads: 2,
         }
     }
 }

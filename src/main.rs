@@ -160,7 +160,7 @@ fn main() {
                     .and_then(|n| n.parse().ok())
                     .expect("--threads needs a number")
             })
-            .unwrap_or(0);
+            .unwrap_or(2);
         let mut positional: Vec<&String> = Vec::new();
         let mut skip = false;
         for a in &args {
@@ -178,7 +178,7 @@ fn main() {
                  Every folder of runs that has a temp folder is a sheet: pullautin must have been run with vector_output=1\n\
                  (temp must hold the .dxf.bin files of the layers, vegetation.png, vegetation.pgw and water.txt).\n\
                  Writes map.pmtiles and metadata.json, and the tiles as tiles/z/x/y.pbf unless --no-tile-files is given.\n\
-                 --threads N sets the threads of the vegetation polygons (default 0 = all cores, 1 = one thread)."
+                 --threads N sets the threads of the vegetation polygons (default 2, 0 = all cores, 1 = one thread)."
             );
             return;
         }
