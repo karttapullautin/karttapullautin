@@ -152,18 +152,39 @@ fn main() {
     }
 
     if command == "vectortiles" {
-        let positional: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
+        let threads: usize = args
+            .iter()
+            .position(|a| a == "--threads")
+            .map(|i| {
+                args.get(i + 1)
+                    .and_then(|n| n.parse().ok())
+                    .expect("--threads needs a number")
+            })
+            .unwrap_or(0);
+        let mut positional: Vec<&String> = Vec::new();
+        let mut skip = false;
+        for a in &args {
+            if skip {
+                skip = false;
+            } else if a == "--threads" {
+                skip = true;
+            } else if !a.starts_with("--") {
+                positional.push(a);
+            }
+        }
         if positional.len() < 2 {
             eprintln!(
-                "USAGE: pullauta vectortiles <folder of pullautin runs> <output folder> [--no-tile-files]\n\
+                "USAGE: pullauta vectortiles <folder of pullautin runs> <output folder> [--no-tile-files] [--threads N]\n\
                  Every folder of runs that has a temp folder is a sheet: pullautin must have been run with vector_output=1\n\
                  (temp must hold the .dxf.bin files of the layers, vegetation.png, vegetation.pgw and water.txt).\n\
-                 Writes map.pmtiles and metadata.json, and the tiles as tiles/z/x/y.pbf unless --no-tile-files is given."
+                 Writes map.pmtiles and metadata.json, and the tiles as tiles/z/x/y.pbf unless --no-tile-files is given.\n\
+                 --threads N sets the threads of the vegetation polygons (default 0 = all cores, 1 = one thread)."
             );
             return;
         }
         let options = pullauta::vectortiles::BuildOptions {
             tile_files: !args.iter().any(|a| a == "--no-tile-files"),
+            threads,
             ..Default::default()
         };
         let stats = pullauta::vectortiles::build(

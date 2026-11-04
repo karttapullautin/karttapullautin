@@ -15,6 +15,7 @@ use super::mvt::Value;
 use super::project::Tm35finToMercator;
 use super::raster::{self, BACKGROUND, FIRST_GREEN, Mosaic, OPEN};
 use geo::{Area, BooleanOps, Coord, LineString, MultiPolygon, Polygon};
+use rayon::prelude::*;
 
 pub struct Params {
     /// size of the grid cells in metres (pixels of the vegetation image)
@@ -294,11 +295,12 @@ impl Collector<'_> {
     }
 }
 
-/// The vegetation polygons of a mosaic, in map coordinates of the mosaic's CRS and then Web Mercator metres
+/// The vegetation polygons of a mosaic, computed on `threads` threads (0 = all cores), in map coordinates of the mosaic's CRS and then Web Mercator metres
 pub fn polygons(
     mosaic: &Mosaic,
     params: &Params,
     projection: &Tm35finToMercator,
+    threads: usize,
 ) -> Vec<PolygonFeature> {
     let grid = Grid::from_mosaic(mosaic, params);
     let mut collector = Collector {
@@ -336,74 +338,115 @@ pub fn polygons(
     );
 
     let b = params.block as f64;
-    let mut smoothed: Vec<MultiPolygon<f64>> = Vec::with_capacity(collector.emitted.len());
-    let mut features = Vec::new();
     let empty = MultiPolygon::<f64>::new(Vec::new());
-    for e in &collector.emitted {
-        // the outline in metres, y down, from the top-left corner of the mosaic
-        let to_px = |&(x, y): &(i32, i32)| {
-            (
-                ((e.ox as i32 + x) as f64) * b,
-                ((e.oy as i32 + y) as f64) * b,
-            )
-        };
-        let mut parts: Vec<Polygon<f64>> = Vec::new();
-        for traced in raster::trace(&e.mask.mask, e.mask.w, e.mask.h) {
-            let exterior = closed_ring(traced.exterior.iter().map(to_px));
-            let holes: Vec<PixelRing> = traced
-                .holes
-                .iter()
-                .map(|h| closed_ring(h.iter().map(to_px)))
-                .filter(|h| ring_area(h) >= params.min_area)
-                .collect();
-            let exterior = smooth_ring(&exterior, params.smooth_sigma_m, params.smooth_step_m);
-            let holes = holes
-                .iter()
-                .map(|h| smooth_ring(h, params.smooth_sigma_m, params.smooth_step_m))
-                .collect();
-            // the union with nothing makes the polygon valid where the smoothing made a ring cross itself
-            parts.extend(polygon_of(exterior, holes).union(&empty).0);
-        }
-        let mut geometry = MultiPolygon::new(parts);
-        if let Some(parent) = e.parent {
-            geometry = geometry.intersection(&smoothed[parent]);
-        }
-        smoothed.push(geometry.clone());
+    let emitted = &collector.emitted;
 
-        let props: Props = match e.label {
-            Label::Open => vec![
-                ("kind", Value::Str("open".into())),
-                ("level", Value::Int(0)),
-            ],
-            Label::Green(level) => vec![
-                ("kind", Value::Str("green".into())),
-                ("level", Value::Int(level as i64)),
-            ],
-        };
-        for polygon in geometry.0 {
-            let Some(simplified) = simplify_polygon(&polygon, params.simplify_m) else {
-                continue;
-            };
-            if simplified.unsigned_area() < params.min_area * 0.5 {
-                continue;
+    // The three stages are run on a pool of `threads` threads (0 = all cores); the results are collected in the
+    // order of `emitted`, so the output does not depend on the number of threads.
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(threads)
+        .build()
+        .expect("could not build the thread pool");
+    let features = pool.install(|| {
+        // 1. the outline of every area, independent of the others
+        let mut smoothed: Vec<MultiPolygon<f64>> = emitted
+            .par_iter()
+            .map(|e| {
+                // the outline in metres, y down, from the top-left corner of the mosaic
+                let to_px = |&(x, y): &(i32, i32)| {
+                    (
+                        ((e.ox as i32 + x) as f64) * b,
+                        ((e.oy as i32 + y) as f64) * b,
+                    )
+                };
+                let mut parts: Vec<Polygon<f64>> = Vec::new();
+                for traced in raster::trace(&e.mask.mask, e.mask.w, e.mask.h) {
+                    let exterior = closed_ring(traced.exterior.iter().map(to_px));
+                    let holes: Vec<PixelRing> = traced
+                        .holes
+                        .iter()
+                        .map(|h| closed_ring(h.iter().map(to_px)))
+                        .filter(|h| ring_area(h) >= params.min_area)
+                        .collect();
+                    let exterior =
+                        smooth_ring(&exterior, params.smooth_sigma_m, params.smooth_step_m);
+                    let holes = holes
+                        .iter()
+                        .map(|h| smooth_ring(h, params.smooth_sigma_m, params.smooth_step_m))
+                        .collect();
+                    // the union with nothing makes the polygon valid where the smoothing made a ring cross itself
+                    parts.extend(polygon_of(exterior, holes).union(&empty).0);
+                }
+                MultiPolygon::new(parts)
+            })
+            .collect();
+
+        // 2. clip every area to its parent: a parent always comes before its children, so the areas of one depth
+        // only need the (final) areas of the depth above
+        let mut depth = vec![0usize; emitted.len()];
+        let mut by_depth: Vec<Vec<usize>> = Vec::new();
+        for (i, e) in emitted.iter().enumerate() {
+            depth[i] = e.parent.map_or(0, |p| depth[p] + 1);
+            if by_depth.len() <= depth[i] {
+                by_depth.resize(depth[i] + 1, Vec::new());
             }
-            // pixel metres -> map coordinates of the mosaic (north up) -> Web Mercator
-            let to_world = |c: &Coord<f64>| -> Coord<f64> {
-                let (x, y) = projection.to_mercator(mosaic.x0 as f64 + c.x, mosaic.y0 as f64 - c.y);
-                Coord { x, y }
-            };
-            let map_ring = |line: &LineString<f64>| {
-                LineString::from(line.coords().map(to_world).collect::<Vec<_>>())
-            };
-            features.push(PolygonFeature {
-                polygon: Polygon::new(
-                    map_ring(simplified.exterior()),
-                    simplified.interiors().iter().map(map_ring).collect(),
-                ),
-                props: props.clone(),
-            });
+            by_depth[depth[i]].push(i);
         }
-    }
+        for indices in by_depth.iter().skip(1) {
+            let clipped: Vec<MultiPolygon<f64>> = indices
+                .par_iter()
+                .map(|&i| smoothed[i].intersection(&smoothed[emitted[i].parent.unwrap()]))
+                .collect();
+            for (&i, geometry) in indices.iter().zip(clipped) {
+                smoothed[i] = geometry;
+            }
+        }
+
+        // 3. simplify and project
+        let per_area: Vec<Vec<PolygonFeature>> = emitted
+            .par_iter()
+            .zip(smoothed.par_iter())
+            .map(|(e, geometry)| {
+                let props: Props = match e.label {
+                    Label::Open => vec![
+                        ("kind", Value::Str("open".into())),
+                        ("level", Value::Int(0)),
+                    ],
+                    Label::Green(level) => vec![
+                        ("kind", Value::Str("green".into())),
+                        ("level", Value::Int(level as i64)),
+                    ],
+                };
+                let mut features = Vec::new();
+                for polygon in &geometry.0 {
+                    let Some(simplified) = simplify_polygon(polygon, params.simplify_m) else {
+                        continue;
+                    };
+                    if simplified.unsigned_area() < params.min_area * 0.5 {
+                        continue;
+                    }
+                    // pixel metres -> map coordinates of the mosaic (north up) -> Web Mercator
+                    let to_world = |c: &Coord<f64>| -> Coord<f64> {
+                        let (x, y) =
+                            projection.to_mercator(mosaic.x0 as f64 + c.x, mosaic.y0 as f64 - c.y);
+                        Coord { x, y }
+                    };
+                    let map_ring = |line: &LineString<f64>| {
+                        LineString::from(line.coords().map(to_world).collect::<Vec<_>>())
+                    };
+                    features.push(PolygonFeature {
+                        polygon: Polygon::new(
+                            map_ring(simplified.exterior()),
+                            simplified.interiors().iter().map(map_ring).collect(),
+                        ),
+                        props: props.clone(),
+                    });
+                }
+                features
+            })
+            .collect();
+        per_area.into_iter().flatten().collect::<Vec<_>>()
+    });
     if log::log_enabled!(log::Level::Debug) {
         let mut emitted_by_label = std::collections::BTreeMap::new();
         for e in &collector.emitted {
@@ -521,7 +564,7 @@ mod tests {
         ];
         let m = mosaic(&rows, vec![]);
         let projection = Tm35finToMercator::new();
-        let features = polygons(&m, &no_closing(), &projection);
+        let features = polygons(&m, &no_closing(), &projection, 2);
         let level = |f: &PolygonFeature| match f.props[1].1 {
             Value::Int(l) => l,
             _ => panic!(),
@@ -537,7 +580,7 @@ mod tests {
     fn open_areas_and_small_areas() {
         // one open area of 3 x 2 blocks and a single block (9 m2 < 36 m2) that is dropped
         let m = mosaic(&["yyy..", "yyy.y", ".....", "....."], vec![]);
-        let features = polygons(&m, &no_closing(), &Tm35finToMercator::new());
+        let features = polygons(&m, &no_closing(), &Tm35finToMercator::new(), 1);
         assert_eq!(features.len(), 1);
         assert_eq!(features[0].props[0].1, Value::Str("open".into()));
     }
@@ -549,6 +592,7 @@ mod tests {
             &mosaic(&rows, vec![]),
             &no_closing(),
             &Tm35finToMercator::new(),
+            1,
         );
         let wet = polygons(
             &mosaic(
@@ -557,6 +601,7 @@ mod tests {
             ),
             &no_closing(),
             &Tm35finToMercator::new(),
+            1,
         );
         let area = |f: &[PolygonFeature]| f.iter().map(|p| p.polygon.unsigned_area()).sum::<f64>();
         assert_eq!(dry.len(), 1);

@@ -1481,6 +1481,7 @@ dependencies = [
  "mimalloc",
  "png",
  "rand 0.10.2",
+ "rayon",
  "rust-ini",
  "rustc-hash",
  "serde",

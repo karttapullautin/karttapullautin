@@ -21,6 +21,8 @@ pub struct BuildOptions {
     pub zoom: u8,
     /// also write every tile as `<out>/tiles/<z>/<x>/<y>.pbf`
     pub tile_files: bool,
+    /// threads for the vegetation polygons, 0 = all cores
+    pub threads: usize,
 }
 
 impl Default for BuildOptions {
@@ -28,6 +30,7 @@ impl Default for BuildOptions {
         Self {
             zoom: 14,
             tile_files: true,
+            threads: 0,
         }
     }
 }
@@ -82,7 +85,12 @@ pub fn build(runs: &Path, out_dir: &Path, options: &BuildOptions) -> anyhow::Res
 
     let mosaic = raster::read_mosaic(&sheets)?;
     features.vegetation =
-        vegetation::polygons(&mosaic, &vegetation::Params::default(), &projection);
+        vegetation::polygons(
+        &mosaic,
+        &vegetation::Params::default(),
+        &projection,
+        options.threads,
+    );
     info!(
         "vegetation: {}x{} px mosaic, {} polygons ({:.1?})",
         mosaic.width,
