@@ -14,6 +14,8 @@ työssä samalla työasemalla (8 ydintä) MML:n laserkeilausaineistolla (Funetin
 | Vesiruudut vektorituotantoa varten | 9,2 s | 0,16 s |
 | Vegetaation vektorointi ja MVT-rakennus, yhdeksän lehteä | 77 s (Python), noin 3 GB | 5,3 s (Rust), 313 MB |
 | Koko ketju yhdeksälle lehdelle (pullautin → MVT) | noin 365 s (arvio) | 150 s (Python) / **74 s (Rust)** |
+| Iso lehti (`M4122F4`, 8,2 M pistettä), pullautin, `vector_output` | 7,26 s | 6,0 s (osio 7) |
+| `vectortiles`, yhdeksän lehteä | 5,4 s (1 säie) | 4,3 s (2 säiettä), 3,8 s (kaikki 8 ydintä) (osio 8) |
 
 Pullautinin tulosteet ovat **tavu-identtiset** alkuperäisen binäärin kanssa: molemmat PNG-kartat, kaikki väliaikaistiedostot ja Python-putkella tehdyt
 yhdeksän lehden testialueen 72 MVT-tiiltä (PMTiles 2 382 581 tavua). Rust-versio MVT-tiilistä (osio 6) on tarkalleen sama viivoille ja pisteille ja
@@ -93,7 +95,7 @@ Tulos (iso lehti): 9,9 s → 8,0 s, 466 MB → 315 MB. Viisi DXF-tiedostoa ja `v
 
 ### 6. Python-vaiheet Rustiin: `pullauta vectortiles` (haara `vectortiles-rust`)
 
-Komento `pullauta vectortiles <ajokansio> <ulostulo> [--no-tile-files]` korvaa `proxy-server/mapant-tiles/`-skriptit (`stitch_veg.py`,
+Komento `pullauta vectortiles <ajokansio> <ulostulo> [--no-tile-files] [--threads N] [--crs tm35fin|sweref99tm]` korvaa `proxy-server/mapant-tiles/`-skriptit (`stitch_veg.py`,
 `vegetation_polygons.py`, `build_mvt.py`, `dxfparse.py`). Se lukee pullautinin ajojen `temp`-kansiot (ajo `vector_output=1`:llä): kerrosten
 `.dxf.bin`-tiedostot, `vegetation.png` (indeksoitu PNG: paletti-indeksi kertoo luokan suoraan), `vegetation.pgw` ja `water.txt`. Tulos on
 `map.pmtiles`, `metadata.json` ja halutessaan `tiles/z/x/y.pbf`.
@@ -129,6 +131,106 @@ Varmistus: Pythonin `pmtiles`-lukija lukee otsikon ja kaikki 72 tiiltä (täsmä
 piirteet, ja 24 uutta yksikkötestiä (projektio vs pyproj, tiilitunnisteet vs viiteratkaisu, MVT:n edestakainen koodaus, PMTiles-kirjoitus
 lehtihakemistoineen, sulkeminen ja tasoitus vs scipy, sisäkkäisyyssääntö).
 
+### 7. Käyrien muodostus: vain tason leikkaamat solut (`4b7a12f`)
+
+Profilointi (`Timing`-osiot, 8,2 M pisteen lehti, 6,0 s) näytti, että `knoll detection part 1` (2,43 s) on käytännössä yksi kutsu:
+`heightmap2contours` 0,3 m:n välillä (2,6 s; `xyz2heightmap` vie vain 0,18 s). `grid2contours` kävi jokaiselle korkeustasolle (208 kpl)
+läpi koko 2,25 M solun ruudukon, vaikka suurin osa soluista ei leikkaa kyseistä tasoa.
+
+Solut jaetaan nyt tasoihin ennen silmukkaa: solu kuuluu niille tasoille, jotka ovat sen kulmien pienimmän ja suurimman arvon välissä (samat
+vertailut kuin vanhassa ohituksessa), ja solut käydään samassa i, j -järjestyksessä. Tasot lasketaan samalla `level += v` -summauksella kuin
+ennen. Tulos on **tavu-identtinen** (kaikki 11 vertailtua tiedostoa: `.dxf.bin` ja `.hmap`).
+
+| | Ennen | Nyt |
+|---|---|---|
+| `knoll detection part 1` | 2,43 s | 1,23 s |
+| `contour generation part 2` (2,5 m:n käyrät) | 0,30 s | 0,17 s |
+| koko lehti | 7,26 s | 6,0 s |
+
+Jäljelle jäävä noin 1 s on segmenttien haku (0,58 s, 8,1 M päätepistettä) ja polylinejen ketjutus HashMapin avulla (0,31 s). Näitä ei muutettu
+(päätös: ei toteuteta). Mahdollisia jatkoja olisivat tasojen rinnakkaisajo ja HashMapin korvaaminen ruudukkoindeksillä.
+
+#### Aikajakauma tämän jälkeen (iso lehti, kolme ajoa, 6,0 s)
+
+| Vaihe | Aika |
+|---|---|
+| vegetation generation | 2,0 s |
+| knoll detection part 1 (`contours03`) | 1,23 s |
+| LAZ:n luku (`preparing input file`) | 0,94 s |
+| cliff generation | 0,73 s |
+| contour generation 1–4 | 0,55 s |
+| knoll detection part 2 | 0,22 s |
+| water cells | 0,16 s |
+| DXF/bin-tulosteet, muotoviivat | 0,16 s |
+
+Rinnakkaisuutta ei ole muualla kuin kahdessa asetuksessa: `processes` (lehtiä rinnakkain, vaatii `batch=1`) ja `parallel_laz_decompression`.
+Yhden lehden sisällä vaiheet ovat yksisäikeisiä (`vector_output` ohittaa PNG-renderöinnin, jossa `image`-kirjaston rayon oli ainoa rinnakkaisuus), joten
+yksi lehti käyttää noin 1,5 ydintä 8:sta.
+
+### 8. Vegetaatiopolygonit usealla säikeellä: `--threads` (`6a03af6`, `4437d7c`)
+
+`vectortiles`-vaiheen vegetaatio (3,6 s yhdeksälle lehdelle) jakautui näin: ruudukko 0,54 s, alueiden nimeäminen 0,13 s, jäljitys 0,44 s, pehmennys
+0,58 s, union 0,52 s, leikkaus vanhempaan 0,78 s, yksinkertaistus ja projektio 0,33 s.
+
+`vegetation::polygons` ajaa nyt kolme vaihetta `rayon`-poolissa: (1) jäljitys, pehmennys ja union alueittain, (2) leikkaus vanhempaan
+sisäkkäisyyssyvyyden mukaan (vanhempi on aina ennen lasta, joten saman syvyyden alueet vain lukevat edellisen syvyyden valmiita alueita), (3)
+yksinkertaistus ja projektio. Tulokset kerätään alkuperäisessä järjestyksessä, joten **`map.pmtiles` on tavu-identtinen kaikilla säiemäärillä** (1, 2, 4, 0).
+
+Parametri: `--threads N` (`BuildOptions::threads`); 0 = kaikki ytimet, 1 = yksi säie, **oletus 2**.
+
+| Säikeitä | Seinäaika | Muisti |
+|---|---|---|
+| 1 | 5,50 s | 369 MB |
+| 2 | 4,26 s | 386 MB |
+| 4 | 3,89 s | 411 MB |
+| 0 (8 ydintä) | 3,82 s | 472 MB |
+
+Nopeutus jää pieneksi (1,44×), koska ruudukon rakennus, nimeäminen ja luku ovat yksisäikeisiä ja yksi suuri alue hallitsee rinnakkaista osaa.
+Oletukseksi valittiin 2, jotta `vectortiles` ei vie kaikkia ytimiä muulta työltä.
+
+### 9. SWEREF 99 TM (`cc843ed`)
+
+`project.rs` ottaa keskimeridiaanin parametrina (TM35FIN 27 °, SWEREF 99 TM 15 °); GRS80, mittakaava 0,9996 ja false easting ovat samat.
+Komennolle `--crs sweref99tm` (oletus `tm35fin`). Testit: kolme pistettä pyprojin `EPSG:3006 → 3857` -tulosta vastaan alle 1 mm, ja nimien jäsennys.
+Tiilien `metadata.json`-rajat osuivat odotettuihin koordinaatteihin. Testejä on nyt 96.
+
+## Aineisto: pistetiheys ja muut maat (mittaukset ja havainnot)
+
+Tulokset ovat havaintoja yksittäisistä alueista; **johtopäätökset ovat arvioita**, ja kynnysten säätöä ei ole kokeiltu.
+
+**MML:n aineisto (Funet):** 0,70–0,91 pistettä/m² (yhdeksän lehteä, kaikki paluut; LAZ-otsikoista).
+
+**5p-aineisto (MML `Avoin_laseraineisto5p`):** vain viisi rajattua tuotantoaluetta (Forssa, Nurmijärvi, Nuuksio, Pieksämäki, Suomutunturi),
+ei koko maata. Nuuksion lehti L4132F3 (9 × 1 km, 9,6–14,1 pistettä/m², korkeus 213 m asti) täydellä tiheydellä ja ohennettuna (`thinfactor 0.08`, noin 0,8/m²):
+
+| | 5p täysi | Ohennettu |
+|---|---|---|
+| korkeuskäyrät | 1518 (1 065 137 m) | 1553 (1 058 979 m, −0,6 %) |
+| jyrkänteet | **350 385** | 10 237 |
+| vegetaation pinta-ala | 124 M | 91 M (−27 %) |
+| tiilet yhteensä | 6,69 MB | 0,57 MB |
+| pullautin / lehti (1 km²) | 2,8–4,4 s, 194–248 MB | 1,4–2,1 s, 83–90 MB |
+
+Korkeuskäyriin 0,8 pistettä/m² riittää. Aluskasvillisuus (vihreä) kärsii harvasta aineistosta, ja tiheällä aineistolla jyrkänteitä tulee moninkertaisesti
+(oletuskynnykset on viritetty harvalle aineistolle; arvio, ei testattu).
+
+**Lantmäteriet Laserdata Skog (Ruotsi):** STAC-rajapinta `https://api.lantmateriet.se/stac-hojd/v1`, kokoelma `dsm-skoglig-copc`, COPC-LAZ (LAS 1.4,
+pistemuoto 6), 2,5 km:n tiilet, EPSG:5845 (SWEREF 99 TM), CC BY 4.0. Tiedostojen lataus vaatii Basic-tunnistuksen. Pullautin lukee tiedostot sellaisenaan.
+
+| Tiili | Alue | Tiheys | Pullautin | Jyrkänteet |
+|---|---|---|---|---|
+| `y20d027-67725_5050_25` | Dalarna | 1,1/m² | 7,4 s, 482 MB | 23 |
+| `y21d009-66625_4125_25` | Värmland | 2,1/m² | 5,8 s, 350 MB | 866 |
+| `y22a035-63500_4900_25` | Småland | 0,86/m² | 10,3 s, 566 MB | 103 842 |
+| `y26h019-73725_8900_25` | Norrbotten | 1,3/m² | 6,4 s, 455 MB | 4 468 |
+
+**Vertailu Gokartorin tiiliin** (`https://t.gokartor.se/Master/{z}/{y}/{x}.png`, EPSG:3006, resoluutiot 16384 … 1 … 0,5 m/px zoomilla 0…15, origo
+(265000, 7680000), y ennen x:ää; vertailtu zoom 15:llä, 640 m:n ruudut; Småland ja Dalarna):
+- korkeuskäyrien muoto täsmää erinomaisesti; Gokartor piirtää paksummat välikäyrät
+- jyrkänteiden sijainnit täsmäävät (Småland); Gokartorin symbolit ovat paksumpia
+- meidän vihreämme on selvästi runsaampaa ja tummempaa kuin Gokartorin (aluskasvillisuuden kynnykset on viritetty MML:n aineistolle; arvio)
+- meiltä puuttuvat tiet, purot, vesi, suot ja rakennukset, koska ne eivät tule pistepilvestä
+
 ## Koko ketju (yhdeksän lehden testialue)
 
 | Vaihe | Aika |
@@ -155,7 +257,7 @@ Nämä eivät muuta pullautinia vaan MVT-tiilien kokoa (`proxy-server/mapant-til
 
 ## Tarkistus ja toistaminen
 
-- `cargo fmt --check`, `cargo clippy --release` (ei varoituksia) ja `cargo test --release` (70 testiä) menevät läpi.
+- `cargo fmt --check`, `cargo clippy --release` (ei varoituksia) ja `cargo test --release` (96 testiä) menevät läpi.
 - Uudet yksikkötestit: `nearest_view_matches_image_crate` ja `nearest_view_uses_only_the_cropped_part` (`src/render.rs`).
 - Vertailu: aja alkuperäinen ja uusi binääri samalla LAZ-tiedostolla eri hakemistoihin ja vertaa (`cmp`) `pullautus.png`, `pullautus_depr.png` ja kaikki
   `temp/`-tiedostot. Vektoritilassa vertaa `out2.dxf`, `formlines.dxf`, `c2g.dxf`, `c3g.dxf`, `dotknolls.dxf` ja `vegetation.png`.
@@ -166,10 +268,12 @@ Nämä eivät muuta pullautinia vaan MVT-tiilien kokoa (`proxy-server/mapant-til
 - GPU-laskentaa ei kokeiltu: raskaat vaiheet ovat haarautuvaa geometriaa, ja mittaus osoitti pullonkaulat muualla (silmukat, kopiot).
 - Rust-version polygonit eivät ole tavu-identtisiä Pythonin kanssa (yksinkertaistus ilman JTS:n leikkaustarkistuksia), ja suurille alueille (koko maa)
   rakennus pitäisi tehdä lohkoittain: nyt kaikki piirteet ovat muistissa kerralla.
-- Konfiguraatiota `thinfactor` (pisteiden harvennus) ei käytetty, koska se muuttaisi tulosta.
+- Konfiguraatiota `thinfactor` (pisteiden harvennus) ei käytetty tuotannossa, koska se muuttaisi tulosta; sitä käytettiin vain tiheyden vaikutuksen mittaamiseen.
+- Käyrien segmenttihaun ja ketjutuksen nopeutusta (tasojen rinnakkaisajo, ruudukkoindeksi HashMapin tilalle) ei toteutettu.
+- Aluskasvillisuuden ja jyrkänteiden kynnyksiä ei viritetty 5p- tai Ruotsin aineistolle.
 - Käyräpiirron leimausta ei muutettu, koska mittaus ei osoittanut sitä pullonkaulaksi.
 
-## Commitit (haara `render-optimization`)
+## Commitit (haarat `render-optimization` ja `vectortiles-rust`)
 
 | Commit | Sisältö |
 |---|---|
@@ -178,3 +282,7 @@ Nämä eivät muuta pullautinia vaan MVT-tiilien kokoa (`proxy-server/mapant-til
 | `71617b9` | kumpareiden tunnistus: `PointGrid` ja `Vec`-korkeudet |
 | `1ad340b` | `vector_output`, `watercells`, DXF vain lopullisista kerroksista |
 | `c7161d8`, `672236e`, `621c667` | haara `vectortiles-rust`: projektio, MVT, PMTiles, kerrokset, vegetaatio ja `vectortiles`-komento |
+| `0b0e242` | tämä dokumentti: Python-vaiheet Rustiin |
+| `4b7a12f` | käyrät: vain tason leikkaamat solut |
+| `6a03af6`, `4437d7c` | vegetaatio usealla säikeellä, `--threads` (oletus 2) |
+| `cc843ed` | SWEREF 99 TM, `--crs` |
