@@ -5,6 +5,17 @@ GeoJSON or Python step. Contours, form lines, cliffs, knolls and the vegetation 
 Measured on an 8-core workstation: nine 3 x 3 km sheets (81 km2) take **5 s and 313 MB** to tile, after the sheets themselves
 (about 7 s and 300 MB each, 8 M points). Details and measurements of every optimisation: [optimizations.md](optimizations.md) (in Finnish).
 
+## Quick start
+
+```bash
+cargo build --release
+examples/laz-to-pmtiles.sh my-laz-sheets/ out/ --crs tm35fin --scan-year 2020     # sheets -> out/out/map.pmtiles
+```
+
+[examples/laz-to-pmtiles.sh](../examples/laz-to-pmtiles.sh) runs the whole chain below: `pullauta` on every sheet in parallel (with `vector_output = 1`),
+then `pullauta vectortiles`. Four 1 km sheets (10 points per m2) take 7 s and 4 s. [examples/sweden](../examples/sweden) has the scripts for fetching
+Lantmäteriet's open laser data and building a large area in blocks.
+
 ## Pipeline
 
 ```text
