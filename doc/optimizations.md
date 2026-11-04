@@ -194,6 +194,23 @@ Oletukseksi valittiin 2, jotta `vectortiles` ei vie kaikkia ytimiä muulta työl
 Komennolle `--crs sweref99tm` (oletus `tm35fin`). Testit: kolme pistettä pyprojin `EPSG:3006 → 3857` -tulosta vastaan alle 1 mm, ja nimien jäsennys.
 Tiilien `metadata.json`-rajat osuivat odotettuihin koordinaatteihin. Testejä on nyt 96.
 
+### 10. Yleiskuvataso z13 (`6b61304`)
+
+Pelkkä z14 oli liian raskas pienillä zoomeilla: sama maa-ala vaatii nelinkertaisen määrän z14-tiiliä, ja zoomilla 13 piirrettäisiin kymmeniä
+tuhansia viivoja kerralla. `pullauta vectortiles` tekee nyt z14:n lisäksi **z13-tiilet** (`--overview-zoom N`, oletus 13, `none` = vain z14),
+joissa on vähemmän ja yksinkertaisempia piirteitä (`Features::overview`, Web Mercator -metreinä): vain `normal`- ja `index`-käyrät (tarkkuus 3 m,
+vähintään 60 m pitkät), jyrkänteet `cliff2`/`cliff3` (vähintään 25 m), vegetaatiopolygonit ja reiät vähintään 1600 m2 yksinkertaistettuna 6 m:llä; ei
+muotoviivoja eikä kumpuja. PMTiles-arkistossa on molemmat tasot (matalamman tason tiilet ensin, koska tunnisteet järjestävät niin).
+
+| Testialue | Ilman z13 | z13 + z14 |
+|---|---|---|
+| Tampere, 9 lehteä (`map.pmtiles`) | 2,38 MB, 72 tiiltä | 2,83 MB, 94 tiiltä (z13: 22 tiiltä, 0,57 MB raakana, 5285 käyrää, 3310 polygonia) |
+| Ruotsi, 14 lohkoa | 13,6 MB | 16,7 MB |
+| Rakennusaika | 5,2 s | 5,0 s (Tampere); Ruotsin lohkot 237 s (2 rinnakkain) |
+
+Yksi z13-tiili kattaa nelinkertaisen alan, mutta on kooltaan noin saman kuin z14-tiili (Tampere 31,6 kt vs 36,2 kt, Skellefteå 36,9 kt vs 26,3 kt), eli
+alaa kohden noin 4 kertaa kevyempi. Tile2:n palvelin tukee useita zoomeja arkistoissaan (tarkistaa otsikon minZ..maxZ), joten palvelimeen ei tarvittu muutosta.
+
 ## Aineisto: pistetiheys ja muut maat (mittaukset ja havainnot)
 
 Tulokset ovat havaintoja yksittäisistä alueista; **johtopäätökset ovat arvioita**, ja kynnysten säätöä ei ole kokeiltu.
@@ -286,3 +303,4 @@ Nämä eivät muuta pullautinia vaan MVT-tiilien kokoa (`proxy-server/mapant-til
 | `4b7a12f` | käyrät: vain tason leikkaamat solut |
 | `6a03af6`, `4437d7c` | vegetaatio usealla säikeellä, `--threads` (oletus 2) |
 | `cc843ed` | SWEREF 99 TM, `--crs` |
+| `6b61304` | z13-yleiskuvataso, `--overview-zoom` |
