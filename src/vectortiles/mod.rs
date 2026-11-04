@@ -279,7 +279,7 @@ pub fn build(runs: &Path, out_dir: &Path, options: &BuildOptions) -> anyhow::Res
             "\"vector_layers\":[",
             "{{\"id\":\"contour\",\"fields\":{{\"kind\":\"String\",\"ele\":\"Number\"}}}},",
             "{{\"id\":\"formline\",\"fields\":{{}}}},",
-            "{{\"id\":\"cliff\",\"fields\":{{\"kind\":\"String\"}}}},",
+            "{{\"id\":\"cliff\",\"fields\":{{\"kind\":\"String\",\"size\":\"Number\"}}}},",
             "{{\"id\":\"knoll\",\"fields\":{{\"kind\":\"String\"}}}},",
             "{{\"id\":\"vegetation\",\"fields\":{{\"kind\":\"String\",\"level\":\"Number\"}}}}",
             "],\"bounds\":[{min_lon},{min_lat},{max_lon},{max_lat}]}}"

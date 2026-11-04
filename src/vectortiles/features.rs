@@ -39,82 +39,180 @@ pub struct Features {
 /// Simplification tolerance of contours and formlines, metres (ETRS-TM35FIN)
 pub const LINE_SIMPLIFY_M: f64 = 0.3;
 
-/// Cliff pieces whose end points are closer than this (metres in the map's CRS) and of the same kind are joined into one line
-pub const CLIFF_JOIN_GAP_M: f64 = 2.0;
-/// Simplification tolerance of the joined cliff lines, metres
-pub const CLIFF_SIMPLIFY_M: f64 = 0.5;
-
-/// Joins lines of the same kind whose end points are within `gap` of each other into chains (greedy: from each unused line, the nearest
-/// unused end point of the same kind at the tail, then the same at the head). The pieces keep all their points; an end point that
-/// repeats the one before it is dropped.
-pub fn join_lines(
-    lines: Vec<(Vec<(f64, f64)>, String)>,
-    gap: f64,
-) -> Vec<(Vec<(f64, f64)>, String)> {
-    use std::collections::HashMap;
-    let cell = |p: (f64, f64)| ((p.0 / gap).floor() as i64, (p.1 / gap).floor() as i64);
-    // end points by grid cell: (line, is the last point)
-    let mut ends: HashMap<(i64, i64), Vec<(usize, bool)>> = HashMap::new();
-    for (i, (points, _)) in lines.iter().enumerate() {
-        ends.entry(cell(points[0])).or_default().push((i, false));
-        ends.entry(cell(*points.last().unwrap()))
-            .or_default()
-            .push((i, true));
+/// Cliff pieces of the same kind with vertices closer than this (metres in the map's CRS) belong to one cluster
+pub const CLIFF_CLUSTER_GAP_M: f64 = 3.0;
+/// A cluster is drawn as one short, nearly straight line: the points of a cluster are binned along its axis by this many metres and the bin
+/// centres simplified by `CLIFF_SIMPLIFY_M`
+pub const CLIFF_BIN_M: f64 = 6.0;
+pub const CLIFF_SIMPLIFY_M: f64 = 1.5;
+/// A cluster longer than this along its axis is cut in two at the middle of its pieces, again and again, so that every line stays short and straight
+pub const CLIFF_MAX_LINE_M: f64 = 40.0;
+/// The `size` property of a cliff line: 1 = a single piece, 2 = a cluster of 2-5 pieces, 3 = a cluster of 6 or more (higher cliffs: drawn thicker)
+pub fn cliff_size_class(pieces: usize) -> i64 {
+    match pieces {
+        0 | 1 => 1,
+        2..=5 => 2,
+        _ => 3,
     }
-    let mut used = vec![false; lines.len()];
-    // the nearest end point of an unused line of this kind within the gap
-    let nearest = |p: (f64, f64), kind: &str, used: &[bool]| -> Option<(usize, bool)> {
-        let (cx, cy) = cell(p);
-        let mut best: Option<(f64, usize, bool)> = None;
-        for dx in -1..=1 {
-            for dy in -1..=1 {
-                for &(i, last) in ends.get(&(cx + dx, cy + dy)).into_iter().flatten() {
-                    if used[i] || lines[i].1 != kind {
-                        continue;
-                    }
-                    let q = if last {
-                        *lines[i].0.last().unwrap()
-                    } else {
-                        lines[i].0[0]
-                    };
-                    let d = (q.0 - p.0).hypot(q.1 - p.1);
-                    if d <= gap && best.is_none_or(|b| d < b.0) {
-                        best = Some((d, i, last));
+}
+
+/// A cliff line made of `pieces` pieces
+#[derive(Debug, Clone, PartialEq)]
+pub struct CliffLine {
+    pub points: Vec<(f64, f64)>,
+    pub kind: String,
+    pub pieces: usize,
+}
+
+fn find(parent: &mut [usize], mut i: usize) -> usize {
+    while parent[i] != i {
+        parent[i] = parent[parent[i]];
+        i = parent[i];
+    }
+    i
+}
+
+/// The line of a group of pieces (indices into `pieces`): the piece itself when there is one, else the centre line of their points
+/// along the principal axis, cut in two (recursively) when it is longer than `max_len`.
+fn cliff_lines_of(
+    pieces: &[(Vec<(f64, f64)>, String)],
+    group: &[usize],
+    max_len: f64,
+    out: &mut Vec<CliffLine>,
+) {
+    let kind = pieces[group[0]].1.clone();
+    if group.len() == 1 {
+        let points = &pieces[group[0]].0;
+        out.push(CliffLine {
+            points: douglas_peucker(points, CLIFF_SIMPLIFY_M),
+            kind,
+            pieces: 1,
+        });
+        return;
+    }
+    let points: Vec<(f64, f64)> = group
+        .iter()
+        .flat_map(|&i| pieces[i].0.iter().copied())
+        .collect();
+    let n = points.len() as f64;
+    let (mx, my) = (
+        points.iter().map(|p| p.0).sum::<f64>() / n,
+        points.iter().map(|p| p.1).sum::<f64>() / n,
+    );
+    let (mut sxx, mut sxy, mut syy) = (0.0, 0.0, 0.0);
+    for p in &points {
+        let (dx, dy) = (p.0 - mx, p.1 - my);
+        sxx += dx * dx;
+        sxy += dx * dy;
+        syy += dy * dy;
+    }
+    // the principal axis u and its perpendicular v
+    let theta = 0.5 * (2.0 * sxy).atan2(sxx - syy);
+    let (u, v) = ((theta.cos(), theta.sin()), (-theta.sin(), theta.cos()));
+    let along = |p: &(f64, f64)| (p.0 - mx) * u.0 + (p.1 - my) * u.1;
+    let across = |p: &(f64, f64)| (p.0 - mx) * v.0 + (p.1 - my) * v.1;
+    let (amin, amax) = points
+        .iter()
+        .map(along)
+        .fold((f64::MAX, f64::MIN), |(lo, hi), a| (lo.min(a), hi.max(a)));
+    if amax - amin > max_len && group.len() > 1 {
+        // cut at the middle of the pieces along the axis
+        let mut order: Vec<(f64, usize)> = group
+            .iter()
+            .map(|&i| {
+                let c = &pieces[i].0;
+                (c.iter().map(along).sum::<f64>() / c.len() as f64, i)
+            })
+            .collect();
+        order.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let half = order.len() / 2;
+        let (first, second): (Vec<usize>, Vec<usize>) = (
+            order[..half].iter().map(|o| o.1).collect(),
+            order[half..].iter().map(|o| o.1).collect(),
+        );
+        if !first.is_empty() && !second.is_empty() {
+            cliff_lines_of(pieces, &first, max_len, out);
+            cliff_lines_of(pieces, &second, max_len, out);
+            return;
+        }
+    }
+    // the centre line: the mean of the points of every bin along the axis
+    let mut bins: std::collections::BTreeMap<i64, (f64, f64, f64)> =
+        std::collections::BTreeMap::new();
+    for p in &points {
+        let e = bins
+            .entry((along(p) / CLIFF_BIN_M).floor() as i64)
+            .or_insert((0.0, 0.0, 0.0));
+        e.0 += along(p);
+        e.1 += across(p);
+        e.2 += 1.0;
+    }
+    let mut line: Vec<(f64, f64)> = bins
+        .values()
+        .map(|&(a, b, c)| {
+            let (a, b) = (a / c, b / c);
+            (mx + a * u.0 + b * v.0, my + a * u.1 + b * v.1)
+        })
+        .collect();
+    if line.len() < 2 {
+        // everything in one bin: the axis across the extent of the points
+        let b = points.iter().map(across).sum::<f64>() / n;
+        line = [amin, amax]
+            .iter()
+            .map(|&a| (mx + a * u.0 + b * v.0, my + a * u.1 + b * v.1))
+            .collect();
+    }
+    out.push(CliffLine {
+        points: douglas_peucker(&line, CLIFF_SIMPLIFY_M),
+        kind,
+        pieces: group.len(),
+    });
+}
+
+/// Draws the cliff pieces as few, short, nearly straight lines: pieces of the same kind with vertices within `gap` of each other form a cluster (a group of
+/// cliffs, or a longer cliff the pieces of which meet), and a cluster becomes one line along its axis (`cliff_lines_of`) with the number of its pieces, so
+/// that a dense cluster no longer makes a back and forth zigzag. A lone piece stays as it is.
+pub fn cluster_cliffs(
+    pieces: Vec<(Vec<(f64, f64)>, String)>,
+    gap: f64,
+    max_len: f64,
+) -> Vec<CliffLine> {
+    use std::collections::HashMap;
+    let n = pieces.len();
+    let mut parent: Vec<usize> = (0..n).collect();
+    let cell = |p: (f64, f64)| ((p.0 / gap).floor() as i64, (p.1 / gap).floor() as i64);
+    let mut grid: HashMap<(i64, i64), Vec<(usize, (f64, f64))>> = HashMap::new();
+    for (i, (points, _)) in pieces.iter().enumerate() {
+        for &p in points {
+            grid.entry(cell(p)).or_default().push((i, p));
+        }
+    }
+    for (i, (points, kind)) in pieces.iter().enumerate() {
+        for &p in points {
+            let (cx, cy) = cell(p);
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    for &(j, q) in grid.get(&(cx + dx, cy + dy)).into_iter().flatten() {
+                        if j != i && pieces[j].1 == *kind && (p.0 - q.0).hypot(p.1 - q.1) <= gap {
+                            let (a, b) = (find(&mut parent, i), find(&mut parent, j));
+                            if a != b {
+                                parent[a] = b;
+                            }
+                        }
                     }
                 }
             }
         }
-        best.map(|(_, i, last)| (i, last))
-    };
-    let extend = |chain: &mut Vec<(f64, f64)>, kind: &str, used: &mut Vec<bool>| {
-        while let Some((i, last)) = nearest(*chain.last().unwrap(), kind, used) {
-            used[i] = true;
-            let mut next = lines[i].0.clone();
-            if last {
-                next.reverse();
-            }
-            for p in next {
-                if chain
-                    .last()
-                    .is_none_or(|q| (q.0 - p.0).hypot(q.1 - p.1) > 1e-9)
-                {
-                    chain.push(p);
-                }
-            }
-        }
-    };
+    }
+    let mut groups: std::collections::BTreeMap<usize, Vec<usize>> =
+        std::collections::BTreeMap::new();
+    for i in 0..n {
+        let root = find(&mut parent, i);
+        groups.entry(root).or_default().push(i);
+    }
     let mut out = Vec::new();
-    for i in 0..lines.len() {
-        if used[i] {
-            continue;
-        }
-        used[i] = true;
-        let kind = lines[i].1.clone();
-        let mut chain = lines[i].0.clone();
-        extend(&mut chain, &kind, &mut used);
-        chain.reverse();
-        extend(&mut chain, &kind, &mut used);
-        out.push((chain, kind));
+    for group in groups.values() {
+        cliff_lines_of(&pieces, group, max_len, &mut out);
     }
     out
 }
@@ -200,6 +298,18 @@ impl Features {
                 })
                 .collect()
         };
+        // the larger cliff lines: of kinds cliff2 and cliff3, the clusters (size 2 and 3) and the single pieces that are long enough
+        let cliffs = |source: &[LineFeature]| -> Vec<LineFeature> {
+            let clustered = |f: &LineFeature| {
+                f.props
+                    .iter()
+                    .any(|(k, v)| matches!((k, v), (&"size", Value::Int(n)) if *n >= 2))
+            };
+            lines(source, &OVERVIEW_CLIFF_KINDS, 0.0)
+                .into_iter()
+                .filter(|f| clustered(f) || line_length(&f.points) >= OVERVIEW_MIN_CLIFF_M)
+                .collect()
+        };
         let vegetation = self
             .vegetation
             .iter()
@@ -220,7 +330,7 @@ impl Features {
         Features {
             contour: lines(&self.contour, &OVERVIEW_CONTOUR_KINDS, OVERVIEW_MIN_LINE_M),
             formline: Vec::new(),
-            cliff: lines(&self.cliff, &OVERVIEW_CLIFF_KINDS, OVERVIEW_MIN_CLIFF_M),
+            cliff: cliffs(&self.cliff),
             knoll: Vec::new(),
             vegetation,
         }
@@ -283,7 +393,7 @@ impl Features {
                 });
             }
         }
-        // cliffs: Polylines2 of short pieces; the pieces that meet are joined into longer lines and the lines simplified
+        // cliffs: Polylines2 of short pieces; clusters of them become short, nearly straight lines with a `size` class (higher cliffs: thicker)
         let mut cliff_pieces: Vec<(Vec<(f64, f64)>, String)> = Vec::new();
         for name in ["c2g", "c3g"] {
             if let Some(Geometry::Polylines2(lines)) = read(name)? {
@@ -296,14 +406,16 @@ impl Features {
                 }
             }
         }
-        for (points, kind) in join_lines(cliff_pieces, CLIFF_JOIN_GAP_M) {
-            let simplified = douglas_peucker(&points, CLIFF_SIMPLIFY_M);
-            if simplified.len() < 2 {
+        for line in cluster_cliffs(cliff_pieces, CLIFF_CLUSTER_GAP_M, CLIFF_MAX_LINE_M) {
+            if line.points.len() < 2 {
                 continue;
             }
             self.cliff.push(LineFeature {
-                points: project(&simplified),
-                props: vec![("kind", Value::Str(kind))],
+                points: project(&line.points),
+                props: vec![
+                    ("kind", Value::Str(line.kind)),
+                    ("size", Value::Int(cliff_size_class(line.pieces))),
+                ],
             });
         }
         // knolls: Points
@@ -424,55 +536,76 @@ mod overview_tests {
 }
 
 #[cfg(test)]
-mod join_tests {
+mod cluster_tests {
     use super::*;
 
-    fn l(points: &[(f64, f64)], kind: &str) -> (Vec<(f64, f64)>, String) {
-        (points.to_vec(), kind.to_string())
+    fn piece(a: (f64, f64), b: (f64, f64), kind: &str) -> (Vec<(f64, f64)>, String) {
+        (vec![a, b], kind.to_string())
     }
 
     #[test]
-    fn pieces_that_meet_become_one_line_whatever_their_direction() {
-        let joined = join_lines(
-            vec![
-                l(&[(0.0, 0.0), (5.0, 0.0)], "cliff2"),
-                l(&[(10.0, 0.5), (5.5, 0.2)], "cliff2"), // reversed, 0.5 m gap
-                l(&[(10.2, 0.5), (15.0, 1.0)], "cliff2"),
-            ],
-            2.0,
+    fn a_dense_back_and_forth_cluster_becomes_one_nearly_straight_line_with_the_number_of_its_pieces()
+     {
+        // eight short pieces in a zigzag along the x axis, within 1.5 m of the axis
+        let pieces: Vec<_> = (0..8)
+            .map(|i| {
+                let x = i as f64 * 3.0;
+                piece(
+                    (x, if i % 2 == 0 { 1.0 } else { -1.0 }),
+                    (x + 2.0, if i % 2 == 0 { -1.0 } else { 1.0 }),
+                    "cliff2",
+                )
+            })
+            .collect();
+        let lines = cluster_cliffs(pieces, 3.0, 40.0);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].pieces, 8);
+        assert!(
+            lines[0].points.len() <= 4,
+            "{} points",
+            lines[0].points.len()
         );
-        assert_eq!(joined.len(), 1);
-        let p = &joined[0].0;
-        assert_eq!(p.len(), 6);
-        // one end of the chain is the start of the first piece and the other the end of the last
-        let ends = [p[0], p[p.len() - 1]];
-        assert!(ends.contains(&(0.0, 0.0)) && ends.contains(&(15.0, 1.0)));
+        // straight: every point within the tolerance of the axis
+        assert!(lines[0].points.iter().all(|p| p.1.abs() < 1.6));
+        assert_eq!(cliff_size_class(lines[0].pieces), 3);
     }
 
     #[test]
-    fn pieces_of_another_kind_or_further_apart_stay_separate() {
-        let joined = join_lines(
+    fn a_lone_piece_stays_a_line_of_its_own_and_other_kinds_or_far_pieces_are_other_lines() {
+        let lines = cluster_cliffs(
             vec![
-                l(&[(0.0, 0.0), (5.0, 0.0)], "cliff2"),
-                l(&[(5.0, 0.0), (10.0, 0.0)], "cliff3"),
-                l(&[(20.0, 0.0), (25.0, 0.0)], "cliff2"),
+                piece((0.0, 0.0), (6.0, 0.0), "cliff2"),
+                piece((3.0, 0.5), (9.0, 0.5), "cliff3"), // close, but another kind
+                piece((100.0, 0.0), (106.0, 0.0), "cliff2"), // far away
             ],
-            2.0,
+            3.0,
+            40.0,
         );
-        assert_eq!(joined.len(), 3);
+        assert_eq!(lines.len(), 3);
+        assert!(lines.iter().all(|l| l.pieces == 1 && l.points.len() == 2));
+        assert_eq!(cliff_size_class(1), 1);
+        assert_eq!(cliff_size_class(2), 2);
+        assert_eq!(cliff_size_class(5), 2);
+        assert_eq!(cliff_size_class(6), 3);
     }
 
     #[test]
-    fn a_ring_of_pieces_ends_and_repeated_end_points_are_not_doubled() {
-        let joined = join_lines(
-            vec![
-                l(&[(0.0, 0.0), (5.0, 0.0)], "k"),
-                l(&[(5.0, 0.0), (5.0, 5.0)], "k"),
-                l(&[(5.0, 5.0), (0.0, 0.0)], "k"),
-            ],
-            1.0,
+    fn a_long_cluster_is_cut_into_lines_of_at_most_the_maximum_length() {
+        // 30 pieces end to end along 180 m
+        let pieces: Vec<_> = (0..30)
+            .map(|i| piece((i as f64 * 6.0, 0.0), (i as f64 * 6.0 + 5.0, 0.0), "cliff2"))
+            .collect();
+        let lines = cluster_cliffs(pieces, 3.0, 40.0);
+        assert!(lines.len() >= 4, "{} lines", lines.len());
+        let length = |l: &CliffLine| {
+            let (a, b) = (l.points[0], l.points[l.points.len() - 1]);
+            (b.0 - a.0).hypot(b.1 - a.1)
+        };
+        assert!(
+            lines.iter().all(|l| length(l) <= 45.0),
+            "{:?}",
+            lines.iter().map(length).collect::<Vec<_>>()
         );
-        assert_eq!(joined.len(), 1);
-        assert_eq!(joined[0].0.len(), 4, "the shared points appear once");
+        assert_eq!(lines.iter().map(|l| l.pieces).sum::<usize>(), 30);
     }
 }

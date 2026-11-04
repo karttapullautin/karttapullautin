@@ -238,6 +238,17 @@ Kahden merkin nimeä ei ole millään oikealla kerroksella, OpenLayersin MVT-luk
 kerrokset, joten kahden arkiston reunatiilessä on molemmat (lukija ottaa yhdisteen). Lehden vuosi: `scan_year.txt` lehden kansiossa tai Lantmäteriet-lehden nimen alku
 `yYY` (`y25g017-…` = 2025). Mitattu: Tampere z14-tiili 60 079 → 60 087 tavua, z13 +8; Ruotsin lohkojen koko ei muutu (<0,01 %).
 
+### 14. Jyrkänteet: klusterit lyhyiksi suoriksi viivoiksi (`size`-luokka)
+
+Edellisen vaiheen ketjutus (osio 12) teki tiheistä jyrkännekeskittymistä edestakaisin kulkevia siksak-viivoja, jotka piirtyivät mustina mötiköinä. Nyt
+(`cluster_cliffs`) saman lajin pätkät, joiden pisteet ovat alle 3 m:n päässä toisistaan, muodostavat klusterin, ja klusteri piirretään **yhtenä lyhyenä,
+lähes suorana viivana**: pisteet jaetaan pääakselin suunnassa 6 m:n lokeroihin, lokeroiden keskipisteet yksinkertaistetaan 1,5 m:llä, ja yli 40 m:n klusteri
+katkaistaan kahtia pätkien keskikohdasta kunnes jokainen viiva on enintään 40 m. Yksittäinen pätkä pysyy sellaisenaan. Viivalla on attribuutti **`size`**: 1 = yksi pätkä,
+2 = klusteri (2–5 pätkää), 3 = suuri klusteri (6+ pätkää, korkeampi jyrkänne), jonka perusteella tyyli piirtää viivan paksumpana (×1,3 ja ×1,6).
+
+Tampere: jyrkänteet 52 054 pistettä (osio 12) → **10 636** (−80 %), 5 252 viivaa (luokat 1: 2 547, 2: 1 696, 3: 1 009); koko pmtiles 2,78 → 2,69 MB. Z13-yleiskuvassa jyrkänteistä
+pidetään lajit `cliff2` ja `cliff3`, joilla on `size` ≥ 2 tai pituutta vähintään 25 m.
+
 ## Aineisto: pistetiheys ja muut maat (mittaukset ja havainnot)
 
 Tulokset ovat havaintoja yksittäisistä alueista; **johtopäätökset ovat arvioita**, ja kynnysten säätöä ei ole kokeiltu.
@@ -332,4 +343,5 @@ Nämä eivät muuta pullautinia vaan MVT-tiilien kokoa (`proxy-server/mapant-til
 | `cc843ed` | SWEREF 99 TM, `--crs` |
 | `6b61304` | z13-yleiskuvataso, `--overview-zoom` |
 | `ac5fb87` | jyrkänteiden pätkien yhdistäminen, leikkaus vain pienelle vanhemmalle |
-| (seuraava) | skannausvuodet tiileissä |
+| `b50c025` | skannausvuodet tiileissä |
+| (seuraava) | jyrkänneklusterit, `size`-luokka |
