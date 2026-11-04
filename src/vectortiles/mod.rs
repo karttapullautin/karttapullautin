@@ -105,7 +105,7 @@ fn scan_years_by_tile(
     sheets: &[PathBuf],
     projection: &project::Tm35finToMercator,
     zoom: u8,
-) -> std::collections::HashMap<(u32, u32), (u16, u16)> {
+) -> tiler::TileYears {
     let mut years = std::collections::HashMap::new();
     for sheet in sheets {
         let (Some(year), Ok((x0, y0, x1, y1))) =

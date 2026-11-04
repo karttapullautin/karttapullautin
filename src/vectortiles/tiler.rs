@@ -307,11 +307,14 @@ fn polygon_to_mvt(polygon: &Polygon<f64>, tile: &Rect, size: f64) -> Option<mvt:
     Some(mvt::Geometry::Polygon(rings))
 }
 
+/// The first and last scan year of the data of each tile, by tile
+pub type TileYears = std::collections::HashMap<(u32, u32), (u16, u16)>;
+
 pub struct TileBuilder<'a> {
     pub features: &'a Features,
     pub zoom: u8,
     /// the first and last scan year of the data of each tile (`mvt::scan_years_layer`), None = not told
-    pub years: Option<&'a std::collections::HashMap<(u32, u32), (u16, u16)>>,
+    pub years: Option<&'a TileYears>,
 }
 
 /// How many features each layer of the encoded tiles got
