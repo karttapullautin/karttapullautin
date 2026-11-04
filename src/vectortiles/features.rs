@@ -39,6 +39,86 @@ pub struct Features {
 /// Simplification tolerance of contours and formlines, metres (ETRS-TM35FIN)
 pub const LINE_SIMPLIFY_M: f64 = 0.3;
 
+/// Cliff pieces whose end points are closer than this (metres in the map's CRS) and of the same kind are joined into one line
+pub const CLIFF_JOIN_GAP_M: f64 = 2.0;
+/// Simplification tolerance of the joined cliff lines, metres
+pub const CLIFF_SIMPLIFY_M: f64 = 0.5;
+
+/// Joins lines of the same kind whose end points are within `gap` of each other into chains (greedy: from each unused line, the nearest
+/// unused end point of the same kind at the tail, then the same at the head). The pieces keep all their points; an end point that
+/// repeats the one before it is dropped.
+pub fn join_lines(
+    lines: Vec<(Vec<(f64, f64)>, String)>,
+    gap: f64,
+) -> Vec<(Vec<(f64, f64)>, String)> {
+    use std::collections::HashMap;
+    let cell = |p: (f64, f64)| ((p.0 / gap).floor() as i64, (p.1 / gap).floor() as i64);
+    // end points by grid cell: (line, is the last point)
+    let mut ends: HashMap<(i64, i64), Vec<(usize, bool)>> = HashMap::new();
+    for (i, (points, _)) in lines.iter().enumerate() {
+        ends.entry(cell(points[0])).or_default().push((i, false));
+        ends.entry(cell(*points.last().unwrap()))
+            .or_default()
+            .push((i, true));
+    }
+    let mut used = vec![false; lines.len()];
+    // the nearest end point of an unused line of this kind within the gap
+    let nearest = |p: (f64, f64), kind: &str, used: &[bool]| -> Option<(usize, bool)> {
+        let (cx, cy) = cell(p);
+        let mut best: Option<(f64, usize, bool)> = None;
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                for &(i, last) in ends.get(&(cx + dx, cy + dy)).into_iter().flatten() {
+                    if used[i] || lines[i].1 != kind {
+                        continue;
+                    }
+                    let q = if last {
+                        *lines[i].0.last().unwrap()
+                    } else {
+                        lines[i].0[0]
+                    };
+                    let d = (q.0 - p.0).hypot(q.1 - p.1);
+                    if d <= gap && best.is_none_or(|b| d < b.0) {
+                        best = Some((d, i, last));
+                    }
+                }
+            }
+        }
+        best.map(|(_, i, last)| (i, last))
+    };
+    let extend = |chain: &mut Vec<(f64, f64)>, kind: &str, used: &mut Vec<bool>| {
+        while let Some((i, last)) = nearest(*chain.last().unwrap(), kind, used) {
+            used[i] = true;
+            let mut next = lines[i].0.clone();
+            if last {
+                next.reverse();
+            }
+            for p in next {
+                if chain
+                    .last()
+                    .is_none_or(|q| (q.0 - p.0).hypot(q.1 - p.1) > 1e-9)
+                {
+                    chain.push(p);
+                }
+            }
+        }
+    };
+    let mut out = Vec::new();
+    for i in 0..lines.len() {
+        if used[i] {
+            continue;
+        }
+        used[i] = true;
+        let kind = lines[i].1.clone();
+        let mut chain = lines[i].0.clone();
+        extend(&mut chain, &kind, &mut used);
+        chain.reverse();
+        extend(&mut chain, &kind, &mut used);
+        out.push((chain, kind));
+    }
+    out
+}
+
 /// The `kind` property of a contour: the layer name of the DXF, with the names of the main classes shortened.
 fn contour_kind(class: Classification) -> String {
     match class.to_layer() {
@@ -203,7 +283,8 @@ impl Features {
                 });
             }
         }
-        // cliffs: Polylines2, not simplified
+        // cliffs: Polylines2 of short pieces; the pieces that meet are joined into longer lines and the lines simplified
+        let mut cliff_pieces: Vec<(Vec<(f64, f64)>, String)> = Vec::new();
         for name in ["c2g", "c3g"] {
             if let Some(Geometry::Polylines2(lines)) = read(name)? {
                 for (points, class) in lines.iter() {
@@ -211,12 +292,19 @@ impl Features {
                         continue;
                     }
                     let raw: Vec<_> = points.iter().map(|p| (p.x, p.y)).collect();
-                    self.cliff.push(LineFeature {
-                        points: project(&raw),
-                        props: vec![("kind", Value::Str(class.to_layer().to_string()))],
-                    });
+                    cliff_pieces.push((raw, class.to_layer().to_string()));
                 }
             }
+        }
+        for (points, kind) in join_lines(cliff_pieces, CLIFF_JOIN_GAP_M) {
+            let simplified = douglas_peucker(&points, CLIFF_SIMPLIFY_M);
+            if simplified.len() < 2 {
+                continue;
+            }
+            self.cliff.push(LineFeature {
+                points: project(&simplified),
+                props: vec![("kind", Value::Str(kind))],
+            });
         }
         // knolls: Points
         if let Some(Geometry::Points(points)) = read("dotknolls")? {
@@ -332,5 +420,59 @@ mod overview_tests {
             p.exterior().coords().count() <= 5,
             "the wobble is flattened"
         );
+    }
+}
+
+#[cfg(test)]
+mod join_tests {
+    use super::*;
+
+    fn l(points: &[(f64, f64)], kind: &str) -> (Vec<(f64, f64)>, String) {
+        (points.to_vec(), kind.to_string())
+    }
+
+    #[test]
+    fn pieces_that_meet_become_one_line_whatever_their_direction() {
+        let joined = join_lines(
+            vec![
+                l(&[(0.0, 0.0), (5.0, 0.0)], "cliff2"),
+                l(&[(10.0, 0.5), (5.5, 0.2)], "cliff2"), // reversed, 0.5 m gap
+                l(&[(10.2, 0.5), (15.0, 1.0)], "cliff2"),
+            ],
+            2.0,
+        );
+        assert_eq!(joined.len(), 1);
+        let p = &joined[0].0;
+        assert_eq!(p.len(), 6);
+        // one end of the chain is the start of the first piece and the other the end of the last
+        let ends = [p[0], p[p.len() - 1]];
+        assert!(ends.contains(&(0.0, 0.0)) && ends.contains(&(15.0, 1.0)));
+    }
+
+    #[test]
+    fn pieces_of_another_kind_or_further_apart_stay_separate() {
+        let joined = join_lines(
+            vec![
+                l(&[(0.0, 0.0), (5.0, 0.0)], "cliff2"),
+                l(&[(5.0, 0.0), (10.0, 0.0)], "cliff3"),
+                l(&[(20.0, 0.0), (25.0, 0.0)], "cliff2"),
+            ],
+            2.0,
+        );
+        assert_eq!(joined.len(), 3);
+    }
+
+    #[test]
+    fn a_ring_of_pieces_ends_and_repeated_end_points_are_not_doubled() {
+        let joined = join_lines(
+            vec![
+                l(&[(0.0, 0.0), (5.0, 0.0)], "k"),
+                l(&[(5.0, 0.0), (5.0, 5.0)], "k"),
+                l(&[(5.0, 5.0), (0.0, 0.0)], "k"),
+            ],
+            1.0,
+        );
+        assert_eq!(joined.len(), 1);
+        assert_eq!(joined[0].0.len(), 4, "the shared points appear once");
     }
 }

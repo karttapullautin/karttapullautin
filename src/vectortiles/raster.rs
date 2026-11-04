@@ -243,6 +243,11 @@ fn window_op(src: &[bool], w: usize, h: usize, k: usize, dilate: bool) -> Vec<bo
     out
 }
 
+/// Binary dilation with a k x k square (k odd); the outside of the array counts as false.
+pub fn dilate(src: &[bool], w: usize, h: usize, k: usize) -> Vec<bool> {
+    window_op(src, w, h, k, true)
+}
+
 /// scipy.ndimage.binary_closing with a k x k square after `np.pad(mask, pad, mode="edge")`, cropped back: gaps up to k - 1 cells close,
 /// and the edge of the array is not treated as empty.
 pub fn closing_padded(mask: &[bool], w: usize, h: usize, k: usize, pad: usize) -> Vec<bool> {

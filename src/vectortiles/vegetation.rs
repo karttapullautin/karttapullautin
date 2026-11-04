@@ -64,6 +64,45 @@ struct Emitted {
     parent: Option<usize>,
 }
 
+/// The most vertices a parent polygon may have for its children to be clipped to it
+const CLIP_MAX_PARENT_VERTICES: usize = 4000;
+
+/// True when every cell within `margin` cells of the child's mask is in the parent's mask: the smoothed child is then too far from the
+/// parent's edge to cross it (smoothing moves an outline by a few metres), so it does not have to be clipped to the parent. The child's
+/// mask is part of the parent's by construction, so only the cells near the parent's edge can fail.
+fn child_is_deep_inside(child: &Emitted, parent: &Emitted, margin: usize) -> bool {
+    let (w, h) = (child.mask.w + 2 * margin, child.mask.h + 2 * margin);
+    let mut padded = vec![false; w * h];
+    for y in 0..child.mask.h {
+        for x in 0..child.mask.w {
+            padded[(y + margin) * w + x + margin] = child.mask.mask[y * child.mask.w + x];
+        }
+    }
+    let dilated = raster::dilate(&padded, w, h, 2 * margin + 1);
+    for y in 0..h {
+        for x in 0..w {
+            if !dilated[y * w + x] {
+                continue;
+            }
+            // grid cell of this window cell, then the cell of the parent's mask
+            let (gx, gy) = (
+                (child.ox + x) as isize - margin as isize,
+                (child.oy + y) as isize - margin as isize,
+            );
+            let (px, py) = (gx - parent.ox as isize, gy - parent.oy as isize);
+            let inside = px >= 0
+                && py >= 0
+                && (px as usize) < parent.mask.w
+                && (py as usize) < parent.mask.h
+                && parent.mask.mask[py as usize * parent.mask.w + px as usize];
+            if !inside {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 /// A mask of the grid (or of a part of it) at an offset
 struct Region {
     ox: usize,
@@ -392,13 +431,42 @@ pub fn polygons(
             }
             by_depth[depth[i]].push(i);
         }
+        // The boolean operation is by far the slowest step (a child against a parent of tens of thousands of vertices), and most children
+        // lie deep inside their parent, where the clip changes nothing.
+        let vertex_count: Vec<usize> = smoothed
+            .iter()
+            .map(|g| {
+                g.0.iter()
+                    .map(|p| {
+                        p.exterior().0.len()
+                            + p.interiors().iter().map(|h| h.0.len()).sum::<usize>()
+                    })
+                    .sum()
+            })
+            .collect();
+        let margin = (3.0 * params.smooth_sigma_m / params.block as f64).ceil() as usize + 1;
         for indices in by_depth.iter().skip(1) {
-            let clipped: Vec<MultiPolygon<f64>> = indices
+            let clipped: Vec<Option<MultiPolygon<f64>>> = indices
                 .par_iter()
-                .map(|&i| smoothed[i].intersection(&smoothed[emitted[i].parent.unwrap()]))
+                .map(|&i| {
+                    let parent = emitted[i].parent.unwrap();
+                    // A parent of tens of thousands of vertices (a forest with thousands of clearings) makes every clip against it
+                    // cost seconds, and that is where the time went (122 of 127 s in a Skellefteå block). Its children are subsets of it
+                    // in the raster, so without the clip they can stick out of the smoothed parent by the metre or so that smoothing
+                    // moves an outline: skipped when the parent has more than CLIP_MAX_PARENT_VERTICES.
+                    if vertex_count[parent] > CLIP_MAX_PARENT_VERTICES
+                        || child_is_deep_inside(&emitted[i], &emitted[parent], margin)
+                    {
+                        None
+                    } else {
+                        Some(smoothed[i].intersection(&smoothed[parent]))
+                    }
+                })
                 .collect();
             for (&i, geometry) in indices.iter().zip(clipped) {
-                smoothed[i] = geometry;
+                if let Some(geometry) = geometry {
+                    smoothed[i] = geometry;
+                }
             }
         }
 
