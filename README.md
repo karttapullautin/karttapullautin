@@ -1,3 +1,15 @@
+> **This is a fork** of [karttapullautin/karttapullautin](https://github.com/karttapullautin/karttapullautin) with a faster render and a new command,
+> `pullauta vectortiles`, that turns the output into **vector tiles (MVT in a PMTiles archive)** for web maps. What is different:
+>
+> - **Faster and lighter.** An 8 M point sheet takes 6.0 s instead of 24.2 s and 315 MB instead of 466 MB: one render for the map with depressions
+>   (`render_nodepressions`), rows read as they are drawn, no all-pairs loops in the knoll detection, the contours of a level only visit their own cells.
+>   Output is byte-identical to the original where nothing is meant to change. Measurements: [doc/optimizations.md](doc/optimizations.md) (in Finnish).
+> - **`vector_output = 1`** in `pullauta.ini`: no PNG maps, the layers as `.dxf.bin` and the water cells, for the tile builder.
+> - **`pullauta vectortiles`**: contours, form lines, cliffs, knolls and vegetation polygons of many sheets into `map.pmtiles`, z14 and a lighter z13,
+>   ETRS-TM35FIN or SWEREF 99 TM, parallel vegetation, the laser scanning years in every tile. See [doc/vectortiles.md](doc/vectortiles.md).
+>
+> Branches: `render-optimization` (the render and knoll optimisations, `vector_output`) and `vectortiles-rust` (everything above, on top of it).
+
 # ***Karttapullautin***
 ## What is this?
 
