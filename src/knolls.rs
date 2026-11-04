@@ -11,6 +11,7 @@ use crate::geometry::{BinaryDxf, Bounds, Classification, Geometry, Point2, Point
 use crate::io::bytes::FromToBytes;
 use crate::io::fs::FileSystem;
 use crate::io::heightmap::HeightMap;
+use crate::util::Timing;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Dotknolls {
@@ -21,6 +22,73 @@ pub(crate) struct Dotknoll {
     pub x: f64,
     pub y: f64,
     pub is_knoll: bool,
+}
+
+/// Uniform grid over a list of points, to find the points strictly inside a bounding box without scanning all of them.
+struct PointGrid<'a> {
+    points: &'a [(f64, f64)],
+    x0: f64,
+    y0: f64,
+    nx: usize,
+    ny: usize,
+    cells: Vec<Vec<u32>>,
+}
+
+impl<'a> PointGrid<'a> {
+    const CELL: f64 = 100.0;
+
+    fn new(points: &'a [(f64, f64)]) -> Self {
+        let x0 = points.iter().map(|p| p.0).fold(f64::MAX, f64::min);
+        let y0 = points.iter().map(|p| p.1).fold(f64::MAX, f64::min);
+        let x1 = points.iter().map(|p| p.0).fold(f64::MIN, f64::max);
+        let y1 = points.iter().map(|p| p.1).fold(f64::MIN, f64::max);
+        let (nx, ny) = if points.is_empty() {
+            (1, 1)
+        } else {
+            (
+                ((x1 - x0) / Self::CELL) as usize + 1,
+                ((y1 - y0) / Self::CELL) as usize + 1,
+            )
+        };
+        let mut cells = vec![Vec::new(); nx * ny];
+        for (i, &(x, y)) in points.iter().enumerate() {
+            let cx = ((x - x0) / Self::CELL) as usize;
+            let cy = ((y - y0) / Self::CELL) as usize;
+            cells[cy * nx + cx].push(i as u32);
+        }
+        Self {
+            points,
+            x0,
+            y0,
+            nx,
+            ny,
+            cells,
+        }
+    }
+
+    /// Indexes of the points with minx < x < maxx and miny < y < maxy, in ascending order (the order of the list).
+    fn query(&self, minx: f64, maxx: f64, miny: f64, maxy: f64, out: &mut Vec<u32>) {
+        out.clear();
+        if self.points.is_empty() {
+            return;
+        }
+        let cell_range = |lo: f64, hi: f64, origin: f64, n: usize| {
+            let a = ((lo - origin) / Self::CELL).floor().max(0.0) as usize;
+            let b = (((hi - origin) / Self::CELL).floor().max(0.0) as usize).min(n - 1);
+            a..=b
+        };
+        for cy in cell_range(miny, maxy, self.y0, self.ny) {
+            for cx in cell_range(minx, maxx, self.x0, self.nx) {
+                for &i in &self.cells[cy * self.nx + cx] {
+                    let (x, y) = self.points[i as usize];
+                    if x < maxx && x > minx && y < maxy && y > miny {
+                        out.push(i);
+                    }
+                }
+            }
+        }
+        out.sort_unstable();
+    }
 }
 
 pub fn dotknolls(
@@ -161,6 +229,8 @@ pub fn knolldetector(
     let ymax = (hmap.grid.height() - 1) as u64;
 
     // Temporary hashmap to store the xyz values (TODO: replace with direct hmap lookup!)
+    let mut timing = Timing::start_now("knolldetector");
+    timing.start_section("xyz hashmap");
     let mut xyz: HashMap<(u64, u64), f64> = HashMap::default();
     for (x, y, h) in hmap.grid.iter() {
         xyz.insert((x as u64, y as u64), h);
@@ -200,6 +270,7 @@ pub fn knolldetector(
         }
     }
 
+    timing.start_section("line ends");
     let mut heads1: HashMap<Key, usize> = HashMap::default();
     let mut heads2: HashMap<Key, usize> = HashMap::default();
     let mut heads = Vec::<Key>::with_capacity(lines.len());
@@ -241,6 +312,7 @@ pub fn knolldetector(
         }
     }
 
+    timing.start_section("join lines");
     for l in 0..lines.len() {
         let mut to_join = 0;
         if !el_x[l].is_empty() {
@@ -318,7 +390,9 @@ pub fn knolldetector(
         }
     }
 
-    let mut elevation: HashMap<u64, f64> = HashMap::default();
+    timing.start_section("elevation per line");
+    // elevation of every line that has one, indexed by line id (NaN for the others)
+    let mut elevation = vec![f64::NAN; lines.len()];
     for l in 0..lines.len() {
         let mut skip = false;
         let el_x_len = el_x[l].len();
@@ -392,7 +466,7 @@ pub fn knolldetector(
                     }
                     m += 1;
                 }
-                elevation.insert(l as u64, h);
+                elevation[l] = h;
 
                 let mut mm = ((el_x_len as f64 / 3.0).floor() - 1.0) as i32;
                 if mm < 0 {
@@ -453,6 +527,7 @@ pub fn knolldetector(
         }
     }
 
+    timing.start_section("heads");
     struct Head {
         id: u64,
         xtest: f64,
@@ -485,6 +560,10 @@ pub fn knolldetector(
         miny: f64,
         maxy: f64,
     }
+    timing.start_section("bounding boxes and tops");
+    let head_points: Vec<(f64, f64)> = heads.iter().map(|h| (h.xtest, h.ytest)).collect();
+    let head_grid = PointGrid::new(&head_points);
+    let mut found = Vec::<u32>::new();
     let mut bb: HashMap<usize, BoundingBox> = HashMap::default();
     for l in 0..lines.len() {
         let mut skip = false;
@@ -526,17 +605,11 @@ pub fn knolldetector(
                 },
             );
 
-            for head in heads.iter() {
-                let &Head { id, xtest, ytest } = head;
+            head_grid.query(minx, maxx, miny, maxy, &mut found);
+            for &hi in found.iter() {
+                let &Head { id, xtest, ytest } = &heads[hi as usize];
 
-                if !skip
-                    && *elevation.get(&id).unwrap() > *elevation.get(&(l as u64)).unwrap()
-                    && id != (l as u64)
-                    && xtest < maxx
-                    && xtest > minx
-                    && ytest < maxy
-                    && ytest > miny
-                {
+                if !skip && elevation[id as usize] > elevation[l] && id != (l as u64) {
                     let mut hit = 0;
                     let mut n = 0;
                     let mut x0 = 0.0;
@@ -557,6 +630,7 @@ pub fn knolldetector(
                     }
                     if hit % 2 == 1 {
                         skip = true;
+                        break;
                     }
                 }
             }
@@ -575,6 +649,9 @@ pub fn knolldetector(
         ytest: f64,
         topid: u64,
     }
+    timing.start_section("candidates");
+    let top_points: Vec<(f64, f64)> = tops.iter().map(|t| (t.xtest, t.ytest)).collect();
+    let top_grid = PointGrid::new(&top_points);
     let mut canditates = Vec::<Candidate>::new();
 
     for l in 0..lines.len() {
@@ -596,17 +673,14 @@ pub fn knolldetector(
             } = bb.get(&l).unwrap();
 
             let mut topid = 0;
-            for head in tops.iter() {
-                let &Top { id, xtest, ytest } = head;
+            top_grid.query(minx, maxx, miny, maxy, &mut found);
+            for &ti in found.iter() {
+                let &Top { id, xtest, ytest } = &tops[ti as usize];
                 let ll = l as u64;
 
-                if *elevation.get(&ll).unwrap() < (*elevation.get(&id).unwrap() - 0.1)
-                    && *elevation.get(&ll).unwrap() > (*elevation.get(&id).unwrap() - 4.6)
+                if elevation[ll as usize] < (elevation[id as usize] - 0.1)
+                    && elevation[ll as usize] > (elevation[id as usize] - 4.6)
                     && skip
-                    && xtest < maxx
-                    && xtest > minx
-                    && ytest < maxy
-                    && ytest > miny
                 {
                     let mut hit = 0;
                     let mut n = 0;
@@ -631,6 +705,7 @@ pub fn knolldetector(
                     if hit % 2 == 1 {
                         skip = false;
                         topid = id;
+                        break;
                     }
                 }
             }
@@ -648,12 +723,13 @@ pub fn knolldetector(
         }
     }
 
+    timing.start_section("best candidate");
     let mut best: HashMap<u64, u64> = HashMap::default();
     let mut mov: HashMap<u64, f64> = HashMap::default();
 
     for head in canditates.iter() {
         let &Candidate { id, topid, .. } = head;
-        let el = *elevation.get(&id).unwrap();
+        let el = elevation[id as usize];
         let test = (el / halfinterval + 1.0).floor() * halfinterval - el;
 
         if !best.contains_key(&topid) {
@@ -662,9 +738,7 @@ pub fn knolldetector(
         } else {
             let tid = *best.get(&topid).unwrap();
             if *mov.get(&tid).unwrap() < 1.75 * contours_ratio
-                && (*elevation.get(&topid).unwrap()
-                    - *elevation.get(&tid).unwrap()
-                    - 0.6 * contours_ratio)
+                && (elevation[topid as usize] - elevation[tid as usize] - 0.6 * contours_ratio)
                     .abs()
                     < 0.2
             {
@@ -675,6 +749,7 @@ pub fn knolldetector(
             }
         }
     }
+    timing.start_section("filter candidates");
     let mut new_candidates = Vec::<Candidate>::new();
     for head in canditates.iter() {
         let &Candidate {
@@ -687,11 +762,11 @@ pub fn knolldetector(
         let x = el_x[id as usize].to_vec();
         if *best.get(&topid).unwrap() == id
             && (x.len() < 13
-                || (*elevation.get(&topid).unwrap() > (*elevation.get(&id).unwrap() + 0.45)
-                    || (*elevation.get(&id).unwrap()
+                || (elevation[topid as usize] > (elevation[id as usize] + 0.45)
+                    || (elevation[id as usize]
                         - 2.5
                             * contours_ratio
-                            * (*elevation.get(&id).unwrap() / (2.5 * contours_ratio)).floor())
+                            * (elevation[id as usize] / (2.5 * contours_ratio)).floor())
                         > 0.45))
         {
             new_candidates.push(Candidate {
@@ -708,6 +783,7 @@ pub fn knolldetector(
 
     let canditates = new_candidates;
 
+    timing.start_section("pins");
     let mut pins = Vec::new();
 
     for l in 0..lines.len() {
@@ -790,8 +866,8 @@ pub fn knolldetector(
                 pins.push(Pin {
                     xx: xa,
                     yy: ya,
-                    ele: *elevation.get(&ll).unwrap(),
-                    ele2: *elevation.get(&ltopid).unwrap(),
+                    ele: elevation[ll as usize],
+                    ele2: elevation[ltopid as usize],
                     xlist: x,
                     ylist: y,
                 });
@@ -802,6 +878,7 @@ pub fn knolldetector(
         }
     }
 
+    timing.start_section("write results");
     let detected_dxf = BinaryDxf::new(detected_bounds, vec![detected_lines.into()]);
     detected_dxf.to_writer(&mut fs.create(tmpfolder.join("detected.dxf.bin"))?)?;
 
