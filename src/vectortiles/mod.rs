@@ -23,6 +23,8 @@ pub struct BuildOptions {
     pub tile_files: bool,
     /// threads for the vegetation polygons, 0 = all cores
     pub threads: usize,
+    /// the coordinate system of the pullautin output
+    pub crs: project::Crs,
 }
 
 impl Default for BuildOptions {
@@ -31,6 +33,7 @@ impl Default for BuildOptions {
             zoom: 14,
             tile_files: true,
             threads: 2,
+            crs: project::Crs::default(),
         }
     }
 }
@@ -61,7 +64,7 @@ fn mercator_to_degrees(x: f64, y: f64) -> (f64, f64) {
 
 pub fn build(runs: &Path, out_dir: &Path, options: &BuildOptions) -> anyhow::Result<BuildStats> {
     let started = std::time::Instant::now();
-    let projection = project::Tm35finToMercator::new();
+    let projection = options.crs.projection();
     let sheets = sheet_folders(runs)?;
     anyhow::ensure!(
         !sheets.is_empty(),
@@ -84,8 +87,7 @@ pub fn build(runs: &Path, out_dir: &Path, options: &BuildOptions) -> anyhow::Res
     );
 
     let mosaic = raster::read_mosaic(&sheets)?;
-    features.vegetation =
-        vegetation::polygons(
+    features.vegetation = vegetation::polygons(
         &mosaic,
         &vegetation::Params::default(),
         &projection,
