@@ -7,8 +7,10 @@ pub mod features;
 pub mod mvt;
 pub mod pmtiles;
 pub mod project;
+pub mod raster;
 pub mod simplify;
 pub mod tiler;
+pub mod vegetation;
 
 use features::Features;
 use log::info;
@@ -75,6 +77,17 @@ pub fn build(runs: &Path, out_dir: &Path, options: &BuildOptions) -> anyhow::Res
         features.formline.len(),
         features.cliff.len(),
         features.knoll.len(),
+        started.elapsed()
+    );
+
+    let mosaic = raster::read_mosaic(&sheets)?;
+    features.vegetation =
+        vegetation::polygons(&mosaic, &vegetation::Params::default(), &projection);
+    info!(
+        "vegetation: {}x{} px mosaic, {} polygons ({:.1?})",
+        mosaic.width,
+        mosaic.height,
+        features.vegetation.len(),
         started.elapsed()
     );
 

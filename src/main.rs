@@ -152,14 +152,24 @@ fn main() {
     }
 
     if command == "vectortiles" {
-        if args.len() < 2 {
-            eprintln!("USAGE: pullauta vectortiles <folder of pullautin runs> <output folder>");
+        let positional: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
+        if positional.len() < 2 {
+            eprintln!(
+                "USAGE: pullauta vectortiles <folder of pullautin runs> <output folder> [--no-tile-files]\n\
+                 Every folder of runs that has a temp folder is a sheet: pullautin must have been run with vector_output=1\n\
+                 (temp must hold the .dxf.bin files of the layers, vegetation.png, vegetation.pgw and water.txt).\n\
+                 Writes map.pmtiles and metadata.json, and the tiles as tiles/z/x/y.pbf unless --no-tile-files is given."
+            );
             return;
         }
+        let options = pullauta::vectortiles::BuildOptions {
+            tile_files: !args.iter().any(|a| a == "--no-tile-files"),
+            ..Default::default()
+        };
         let stats = pullauta::vectortiles::build(
-            std::path::Path::new(&args[0]),
-            std::path::Path::new(&args[1]),
-            &pullauta::vectortiles::BuildOptions::default(),
+            std::path::Path::new(positional[0]),
+            std::path::Path::new(positional[1]),
+            &options,
         )
         .unwrap();
         info!("done: {} tiles from {} sheets", stats.tiles, stats.sheets);
