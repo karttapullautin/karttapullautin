@@ -151,6 +151,21 @@ fn main() {
         return;
     }
 
+    if command == "vectortiles" {
+        if args.len() < 2 {
+            eprintln!("USAGE: pullauta vectortiles <folder of pullautin runs> <output folder>");
+            return;
+        }
+        let stats = pullauta::vectortiles::build(
+            std::path::Path::new(&args[0]),
+            std::path::Path::new(&args[1]),
+            &pullauta::vectortiles::BuildOptions::default(),
+        )
+        .unwrap();
+        info!("done: {} tiles from {} sheets", stats.tiles, stats.sheets);
+        return;
+    }
+
     if command == "bin2dxf" {
         if args.len() < 2 {
             info!("USAGE: bin2dxf [.dxf.bin input file] [.dxf output file]");
