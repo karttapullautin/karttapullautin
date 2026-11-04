@@ -12,10 +12,12 @@ työssä samalla työasemalla (8 ydintä) MML:n laserkeilausaineistolla (Funetin
 | Pienempi lehti (`K3414B1`, 4,3 M pistettä), pullautin | 22,8 s, 1,40 GB | 11,1 s, 0,45 GB |
 | Huippumuisti, iso lehti | 466 MB | 315 MB (`vector_output`) |
 | Vesiruudut vektorituotantoa varten | 9,2 s | 0,16 s |
-| Koko ketju yhdeksälle lehdelle (pullautin → MVT) | noin 365 s (arvio) | 150 s |
+| Vegetaation vektorointi ja MVT-rakennus, yhdeksän lehteä | 77 s (Python), noin 3 GB | 5,3 s (Rust), 313 MB |
+| Koko ketju yhdeksälle lehdelle (pullautin → MVT) | noin 365 s (arvio) | 150 s (Python) / **74 s (Rust)** |
 
-Tulosteet ovat **tavu-identtiset** alkuperäisen binäärin kanssa: molemmat PNG-kartat, kaikki väliaikaistiedostot ja yhdeksän lehden testialueen
-72 MVT-tiiltä (PMTiles 2 382 581 tavua).
+Pullautinin tulosteet ovat **tavu-identtiset** alkuperäisen binäärin kanssa: molemmat PNG-kartat, kaikki väliaikaistiedostot ja Python-putkella tehdyt
+yhdeksän lehden testialueen 72 MVT-tiiltä (PMTiles 2 382 581 tavua). Rust-versio MVT-tiilistä (osio 6) on tarkalleen sama viivoille ja pisteille ja
+lähes sama (alle 0,2 % pinta-alasta) vegetaatiolle, mutta ei tavu-identtinen.
 
 ## Mittauspohja
 
@@ -89,6 +91,44 @@ Vektoriaineisto ei tarvitse PNG-karttoja eikä kaikkia tekstimuotoisia DXF-tiedo
 
 Tulos (iso lehti): 9,9 s → 8,0 s, 466 MB → 315 MB. Viisi DXF-tiedostoa ja `vegetation.png` ovat tavu-identtiset normaaliajon kanssa.
 
+### 6. Python-vaiheet Rustiin: `pullauta vectortiles` (haara `vectortiles-rust`)
+
+Komento `pullauta vectortiles <ajokansio> <ulostulo> [--no-tile-files]` korvaa `proxy-server/mapant-tiles/`-skriptit (`stitch_veg.py`,
+`vegetation_polygons.py`, `build_mvt.py`, `dxfparse.py`). Se lukee pullautinin ajojen `temp`-kansiot (ajo `vector_output=1`:llä): kerrosten
+`.dxf.bin`-tiedostot, `vegetation.png` (indeksoitu PNG: paletti-indeksi kertoo luokan suoraan), `vegetation.pgw` ja `water.txt`. Tulos on
+`map.pmtiles`, `metadata.json` ja halutessaan `tiles/z/x/y.pbf`.
+
+Moduulit (`src/vectortiles/`): `project.rs` (TM35FIN → Web Mercator, Krüger-sarja; testi proj:n arvoja vastaan alle 1 mm), `features.rs` ja
+`simplify.rs` (kerrosten luku, Douglas–Peucker viivoille, JTS:n renkaiden yksinkertaistus), `raster.rs` (mosaiikki, lohkoenemmistö,
+morfologia, yhtenäisten alueiden tunnistus, ääriviivan jäljitys), `vegetation.rs`, `tiler.rs` (tiilijako, viivojen leikkaus Liang–Barskyllä,
+polygonien leikkaus `geo`-kirjastolla), `mvt.rs` (käsin kirjoitettu protobuf) ja `pmtiles.rs` (PMTiles v3: Hilbert-tunnisteet, lehtihakemistot,
+tiilidata virtaa väliaikaistiedostoon). Uudet riippuvuudet: `geo` (vain boolen-operaatiot ja ala) ja `flate2` (gzip). Moduuli on rajattu pois
+wasm-käännöksestä.
+
+| Yhdeksän lehden testialue | Python | Rust |
+|---|---|---|
+| liittäminen + vegetaatio + MVT | 4 + 53 + 24 = 81 s | 5,3 s (vegetaatio 3,6 s) |
+| huippumuisti | noin 3 GB (mosaiikki) | 313 MB |
+
+Tarkkuus (Rust verrattuna Python-tiiliin, 72 tiiltä):
+
+| Kerros | Tulos |
+|---|---|
+| käyrät, muotoviivat, jyrkänteet, kumpareet | identtiset: piirteiden määrä, pistemäärä, pituus ja kumpujen koordinaatit täsmäävät kaikissa tiilissä |
+| vegetaatio, alueet tasoittain | täsmälleen samat (19 815 / 2 081 / 10 052 / 3 250 / 3 316 / 402 / 111 vihreää aluetta tasoilla 1–7) |
+| vegetaatio, tasoitetut polygonit | täsmäävät Pythonin kanssa alkio alkiolta (98,5 % alle 1e-6) |
+| vegetaatio, lopulliset polygonit | 25 138 vs 25 130 polygonia; kokonaisala −0,18 %; pisteitä +0,8 %; pahin tiili 1,7 % |
+
+Yksinkertaistus selittää loppuerot: GEOS:n `preserve_topology=True` ei ole pelkkä Douglas–Peucker. Se pakottaa renkaan ensimmäiset osat jaettaviksi
+syvyyteen 3 asti, jotta renkaaseen jää vähintään neljä pistettä, ja pienet alueet kutistuvat siksi vähemmän (pienten polygonien ala 0,53 vs 0,46
+alkuperäisestä). Rustissa tämä on toteutettu samalla säännöllä (`simplify_ring`), mutta ilman JTS:n leikkaustarkistuksia, ja renkaan
+aloituspiste on eri, joten yksittäiset polygonit eivät ole identtisiä. Reikiä on 4 212 vs 4 658 (syytä en selvittänyt). Pythonin GeoJSON pyöristi
+koordinaatit 0,1 m:iin, Rust ei.
+
+Varmistus: Pythonin `pmtiles`-lukija lukee otsikon ja kaikki 72 tiiltä (täsmäävät kirjoitettuihin), OpenLayersin MVT-lukija jäsentää kaikki
+piirteet, ja 24 uutta yksikkötestiä (projektio vs pyproj, tiilitunnisteet vs viiteratkaisu, MVT:n edestakainen koodaus, PMTiles-kirjoitus
+lehtihakemistoineen, sulkeminen ja tasoitus vs scipy, sisäkkäisyyssääntö).
+
 ## Koko ketju (yhdeksän lehden testialue)
 
 | Vaihe | Aika |
@@ -99,9 +139,8 @@ Tulos (iso lehti): 9,9 s → 8,0 s, 466 MB → 315 MB. Viisi DXF-tiedostoa ja `v
 | `build_mvt.py` | 24 s |
 | **Yhteensä** | **150 s (16,7 s per lehti)** |
 
-Jäljellä oleva Python-osuus on yli puolet ajasta. cProfile ei näytä yksittäistä pullonkaulaa: kirjastojen lataus 1,2 s, tasoitus 1,9 s,
-suorakulmioiden yhdistäminen noin 1,5 s. Merkittävä nopeutus vaatisi Rust-portin (`.dxf.bin`-tiedostojen ja luokkaruudukon suora luku, MVT:n
-kirjoitus). Sen arvioin tuovan lehden aikaan noin 10 s; sitä ei ole tehty.
+Python-osuus oli yli puolet ajasta (cProfile ei näyttänyt yksittäistä pullonkaulaa). Se on siirretty Rustiin (osio 6): `pullauta vectortiles`
+vie samalle alueelle **5,3 s**, jolloin koko ketju on pullautin 69 s + 5,3 s = **74 s (8,2 s per lehti)**.
 
 ## Aineiston kokoon liittyvät valinnat (tiilet)
 
@@ -125,7 +164,8 @@ Nämä eivät muuta pullautinia vaan MVT-tiilien kokoa (`proxy-server/mapant-til
 ## Mitä ei tehty
 
 - GPU-laskentaa ei kokeiltu: raskaat vaiheet ovat haarautuvaa geometriaa, ja mittaus osoitti pullonkaulat muualla (silmukat, kopiot).
-- Vegetaation vektorointia ja MVT-rakennusta ei ole siirretty Rustiin (ks. yllä).
+- Rust-version polygonit eivät ole tavu-identtisiä Pythonin kanssa (yksinkertaistus ilman JTS:n leikkaustarkistuksia), ja suurille alueille (koko maa)
+  rakennus pitäisi tehdä lohkoittain: nyt kaikki piirteet ovat muistissa kerralla.
 - Konfiguraatiota `thinfactor` (pisteiden harvennus) ei käytetty, koska se muuttaisi tulosta.
 - Käyräpiirron leimausta ei muutettu, koska mittaus ei osoittanut sitä pullonkaulaksi.
 
@@ -137,3 +177,4 @@ Nämä eivät muuta pullautinia vaan MVT-tiilien kokoa (`proxy-server/mapant-til
 | `e5311fe` | `NearestView`, rivi kerrallaan luettu undergrowth, pohjan uudelleenrakennus |
 | `71617b9` | kumpareiden tunnistus: `PointGrid` ja `Vec`-korkeudet |
 | `1ad340b` | `vector_output`, `watercells`, DXF vain lopullisista kerroksista |
+| `c7161d8`, `672236e`, `621c667` | haara `vectortiles-rust`: projektio, MVT, PMTiles, kerrokset, vegetaatio ja `vectortiles`-komento |
