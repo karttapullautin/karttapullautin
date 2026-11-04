@@ -170,12 +170,21 @@ fn main() {
                     .expect("--crs must be tm35fin or sweref99tm")
             })
             .unwrap_or_default();
+        let overview_zoom = args
+            .iter()
+            .position(|a| a == "--overview-zoom")
+            .map(|i| match args.get(i + 1).map(String::as_str) {
+                Some("none") => None,
+                Some(n) => Some(n.parse().expect("--overview-zoom needs a number or none")),
+                None => panic!("--overview-zoom needs a number or none"),
+            })
+            .unwrap_or(Some(13));
         let mut positional: Vec<&String> = Vec::new();
         let mut skip = false;
         for a in &args {
             if skip {
                 skip = false;
-            } else if a == "--threads" || a == "--crs" {
+            } else if a == "--threads" || a == "--crs" || a == "--overview-zoom" {
                 skip = true;
             } else if !a.starts_with("--") {
                 positional.push(a);
@@ -183,12 +192,13 @@ fn main() {
         }
         if positional.len() < 2 {
             eprintln!(
-                "USAGE: pullauta vectortiles <folder of pullautin runs> <output folder> [--no-tile-files] [--threads N] [--crs tm35fin|sweref99tm]\n\
+                "USAGE: pullauta vectortiles <folder of pullautin runs> <output folder> [--no-tile-files] [--threads N] [--crs tm35fin|sweref99tm] [--overview-zoom N|none]\n\
                  Every folder of runs that has a temp folder is a sheet: pullautin must have been run with vector_output=1\n\
                  (temp must hold the .dxf.bin files of the layers, vegetation.png, vegetation.pgw and water.txt).\n\
                  Writes map.pmtiles and metadata.json, and the tiles as tiles/z/x/y.pbf unless --no-tile-files is given.\n\
                  --threads N sets the threads of the vegetation polygons (default 2, 0 = all cores, 1 = one thread).\n\
-                 --crs sets the coordinate system of the runs: tm35fin (default, Finland) or sweref99tm (Sweden)."
+                 --crs sets the coordinate system of the runs: tm35fin (default, Finland) or sweref99tm (Sweden).\n\
+                 --overview-zoom N adds a lighter, simplified zoom N below z14 (default 13, none = only z14)."
             );
             return;
         }
@@ -196,6 +206,7 @@ fn main() {
             tile_files: !args.iter().any(|a| a == "--no-tile-files"),
             threads,
             crs,
+            overview_zoom,
             ..Default::default()
         };
         let stats = pullauta::vectortiles::build(

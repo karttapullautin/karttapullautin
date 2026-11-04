@@ -18,7 +18,10 @@ use std::path::{Path, PathBuf};
 use tiler::{LayerCounts, TileBuilder};
 
 pub struct BuildOptions {
+    /// the detail zoom
     pub zoom: u8,
+    /// a lighter overview zoom below it (`Features::overview`: fewer and simpler features), None = only the detail zoom
+    pub overview_zoom: Option<u8>,
     /// also write every tile as `<out>/tiles/<z>/<x>/<y>.pbf`
     pub tile_files: bool,
     /// threads for the vegetation polygons, 0 = all cores
@@ -31,6 +34,7 @@ impl Default for BuildOptions {
     fn default() -> Self {
         Self {
             zoom: 14,
+            overview_zoom: Some(13),
             tile_files: true,
             threads: 2,
             crs: project::Crs::default(),
@@ -41,9 +45,32 @@ impl Default for BuildOptions {
 #[derive(Debug, Default)]
 pub struct BuildStats {
     pub sheets: usize,
+    /// tiles and bytes of the detail zoom
     pub tiles: usize,
+    /// tiles and bytes of the overview zoom (0 without one)
+    pub overview_tiles: usize,
+    pub overview_bytes: usize,
     pub layer_counts: LayerCounts,
     pub tile_bytes: usize,
+}
+
+fn write_tile_file(
+    out_dir: &Path,
+    options: &BuildOptions,
+    zoom: u8,
+    tx: u32,
+    ty: u32,
+    bytes: &[u8],
+) -> std::io::Result<()> {
+    if !options.tile_files {
+        return Ok(());
+    }
+    let dir = out_dir
+        .join("tiles")
+        .join(zoom.to_string())
+        .join(tx.to_string());
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(dir.join(format!("{ty}.pbf")), bytes)
 }
 
 /// The folders of `runs` that hold a pullautin run (they have a `temp` folder), in name order
@@ -101,33 +128,56 @@ pub fn build(runs: &Path, out_dir: &Path, options: &BuildOptions) -> anyhow::Res
         started.elapsed()
     );
 
-    let tiles = tiler::index_tiles(&features, options.zoom);
-    info!("{} tiles touched", tiles.len());
-
     std::fs::create_dir_all(out_dir)?;
     let mut writer = pmtiles::PmtilesWriter::create(&out_dir.join("map.pmtiles"))?;
-    let builder = TileBuilder {
-        features: &features,
-        zoom: options.zoom,
-    };
     let mut stats = BuildStats {
         sheets: sheets.len(),
         ..Default::default()
     };
     let (mut min_x, mut min_y, mut max_x, mut max_y) = (u32::MAX, u32::MAX, 0u32, 0u32);
+
+    // The tile ids of a lower zoom are smaller (PMTiles orders the tiles by id), so the overview goes first.
+    let overview = options
+        .overview_zoom
+        .filter(|&z| z < options.zoom)
+        .map(|z| (z, features.overview()));
+    if let Some((z, lighter)) = &overview {
+        let tiles = tiler::index_tiles(lighter, *z);
+        let builder = TileBuilder {
+            features: lighter,
+            zoom: *z,
+        };
+        let mut counts = tiler::LayerCounts::default();
+        for (id, tx, ty, refs) in &tiles {
+            let Some(bytes) = builder.build(*tx, *ty, refs, &mut counts) else {
+                continue;
+            };
+            writer.write_tile(*id, &bytes)?;
+            write_tile_file(out_dir, options, *z, *tx, *ty, &bytes)?;
+            stats.overview_tiles += 1;
+            stats.overview_bytes += bytes.len();
+        }
+        info!(
+            "overview z{z}: {} tiles, {:.2} MB raw, layer features {:?} ({:.1?})",
+            stats.overview_tiles,
+            stats.overview_bytes as f64 / 1e6,
+            counts.0,
+            started.elapsed()
+        );
+    }
+
+    let tiles = tiler::index_tiles(&features, options.zoom);
+    info!("{} tiles touched", tiles.len());
+    let builder = TileBuilder {
+        features: &features,
+        zoom: options.zoom,
+    };
     for (id, tx, ty, refs) in &tiles {
         let Some(bytes) = builder.build(*tx, *ty, refs, &mut stats.layer_counts) else {
             continue;
         };
         writer.write_tile(*id, &bytes)?;
-        if options.tile_files {
-            let dir = out_dir
-                .join("tiles")
-                .join(options.zoom.to_string())
-                .join(tx.to_string());
-            std::fs::create_dir_all(&dir)?;
-            std::fs::write(dir.join(format!("{ty}.pbf")), &bytes)?;
-        }
+        write_tile_file(out_dir, options, options.zoom, *tx, *ty, &bytes)?;
         stats.tiles += 1;
         stats.tile_bytes += bytes.len();
         (min_x, min_y, max_x, max_y) = (
@@ -148,8 +198,9 @@ pub fn build(runs: &Path, out_dir: &Path, options: &BuildOptions) -> anyhow::Res
     };
     let (min_lon, max_lat) = corner(min_x, min_y);
     let (max_lon, min_lat) = corner(max_x + 1, max_y + 1);
+    let min_zoom = overview.as_ref().map_or(options.zoom, |(z, _)| *z);
     let header = pmtiles::Header {
-        min_zoom: options.zoom,
+        min_zoom,
         max_zoom: options.zoom,
         min_lon,
         min_lat,
@@ -161,7 +212,7 @@ pub fn build(runs: &Path, out_dir: &Path, options: &BuildOptions) -> anyhow::Res
     };
     let metadata = format!(
         concat!(
-            "{{\"name\":\"pullautin vector tiles\",\"format\":\"pbf\",\"minzoom\":{z},\"maxzoom\":{z},\"type\":\"overlay\",",
+            "{{\"name\":\"pullautin vector tiles\",\"format\":\"pbf\",\"minzoom\":{minz},\"maxzoom\":{z},\"type\":\"overlay\",",
             "\"vector_layers\":[",
             "{{\"id\":\"contour\",\"fields\":{{\"kind\":\"String\",\"ele\":\"Number\"}}}},",
             "{{\"id\":\"formline\",\"fields\":{{}}}},",
@@ -171,6 +222,7 @@ pub fn build(runs: &Path, out_dir: &Path, options: &BuildOptions) -> anyhow::Res
             "],\"bounds\":[{min_lon},{min_lat},{max_lon},{max_lat}]}}"
         ),
         z = options.zoom,
+        minz = min_zoom,
         min_lon = min_lon,
         min_lat = min_lat,
         max_lon = max_lon,
