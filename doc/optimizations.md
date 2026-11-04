@@ -1,139 +1,146 @@
-# Optimoinnit: renderöinti, kumpareet ja vektorituotanto
+# Optimisations: rendering, knolls and contours
 
-Tämä dokumentti kuvaa haaran `render-optimization` muutokset ja niiden mittaukset. Tavoite oli, että yhden 3 × 3 km:n lehden käsittely vie
-vähemmän aikaa ja muistia, ja että vektoriaineisto (MVT-tiilet) syntyy ilman tarpeettomia välivaiheita. Kaikki luvut on mitattu tässä
-työssä samalla työasemalla (8 ydintä) MML:n laserkeilausaineistolla (Funetin peili), ellei toisin mainita. **Arviot on merkitty arvioiksi.**
+This document describes the changes of the `render-optimization` branch and their measurements. The aim was that processing one 3 × 3 km sheet takes less
+time and memory, without changing any output. All numbers were measured on the same workstation (8 cores) with MML (Finnish National Land Survey) laser
+scanning sheets from the Funet mirror, unless stated otherwise. **Estimates are marked as estimates.**
 
-## Yhteenveto
+## Summary
 
-| Mittari | Ennen | Nyt |
+| Measure | Before | Now |
 |---|---|---|
-| Iso lehti (`M4211E3`, 8,1 M pistettä), pullautin | 24,2 s | 8,0 s (`vector_output`) / 9,9 s (normaali ajo) |
-| Pienempi lehti (`K3414B1`, 4,3 M pistettä), pullautin | 22,8 s, 1,40 GB | 11,1 s, 0,45 GB |
-| Huippumuisti, iso lehti | 466 MB | 315 MB (`vector_output`) |
-| Vesiruudut vektorituotantoa varten | 9,2 s | 0,16 s |
-| Koko ketju yhdeksälle lehdelle (pullautin → MVT) | noin 365 s (arvio) | 150 s |
+| Large sheet (`M4211E3`, 8.1 M points), whole run | 24.2 s | 8.0 s (`vector_output`) / 9.9 s (normal run) |
+| Smaller sheet (`K3414B1`, 4.3 M points), whole run | 22.8 s, 1.40 GB | 11.1 s, 0.45 GB |
+| Peak memory, large sheet | 466 MB | 315 MB (`vector_output`) |
+| Water cells for a vector pipeline | 9.2 s | 0.16 s |
+| Large sheet (`M4122F4`, 8.2 M points), `vector_output` | 7.26 s | 6.0 s (the contour change, section 6) |
 
-Tulosteet ovat **tavu-identtiset** alkuperäisen binäärin kanssa: molemmat PNG-kartat, kaikki väliaikaistiedostot ja yhdeksän lehden testialueen
-72 MVT-tiiltä (PMTiles 2 382 581 tavua).
+The outputs are **byte-identical** to the original binary: both PNG maps and all files of `temp/` (checked with `cmp`).
 
-## Mittauspohja
+## Where the time went
 
-Pullautinissa on valmiina `Timing`-osiot (`RUST_LOG=debug`). Alkuperäisellä binäärillä pienen lehden (4,3 M pistettä) 22,8 sekunnista meni
-renderöintiin 13,8 s (7,4 s + 6,4 s, painanteellinen ja painanteeton kartta). Ison lehden (8,1 M pistettä) 24,2 sekunnista kumpareiden
-tunnistus (`knoll detection part 2`) vei 14,6 s.
+Karttapullautin already has `Timing` sections (`RUST_LOG=debug`). With the original binary, 13.8 s of the 22.8 s of the small sheet (4.3 M points) went to
+rendering (7.4 s + 6.4 s: the map with and the map without depressions). Of the 24.2 s of the large sheet (8.1 M points), the knoll detection
+(`knoll detection part 2`) took 14.6 s.
 
-Ennen jokaista korjausta mitattiin, mihin aika oikeasti kuluu. Kaksi alkuperäistä oletusta osoittautui vääräksi:
+Every fix was preceded by a measurement of where the time really goes. Two initial assumptions turned out to be wrong:
 
-- **PNG-dekoodaus ei ollut hidas** (50–70 ms per tiedosto). Hidas oli `image`-kirjaston `resize` (3,4 s per 3003 → 7093 px -skaalaus).
-- **Käyrien piirto ei ollut hidas** (alle 0,1 s). Oletin, että jokaisen pisteen leimaaminen 25–36 kertaa olisi pullonkaula, mutta mittaus ei
-  tukenut sitä.
+- **PNG decoding was not slow** (50-70 ms per file). What was slow was `resize` of the `image` crate (3.4 s for a 3003 → 7093 px scaling).
+- **Drawing the curves was not slow** (under 0.1 s). I had assumed that stamping every point 25-36 times would be the bottleneck, but the measurement did
+  not support it.
 
-## Muutokset
+## Changes
 
-### 1. Renderöinti jaettiin kahden kartan kesken (`60d5f5a`)
+### 1. Rendering is shared by the two maps (`60d5f5a`)
 
-Pullautin tuottaa kaksi PNG-karttaa (painanteilla ja ilman). Kumpikin kutsu dekoodasi ja skaalasi samat kerrokset ja laski korkeuskentän
-jyrkkyyden alusta. Nyt:
+Karttapullautin writes two PNG maps (with and without depressions). Each call decoded and scaled the same layers and computed the slope of the height
+field from scratch. Now:
 
-- `render_both` rakentaa pohjan (kasvillisuus, aluskasvillisuus, low, pohjoisviivat) ja lukee korkeuskentän ja jyrkkyyden kerran
-  (`load_curve_inputs`). Painanteellinen kartta tehdään ensin, koska se kirjoittaa `formlines.dxf.bin`-tiedoston.
-- Dekoodatut PNG:t vapautetaan heti käytön jälkeen (`into_rgba8()`, ei kopioita).
-- Uusi ini-asetus `render_nodepressions` (oletus `1`). Arvolla `0` tehdään vain painanteellinen kartta.
-- `Timing`-osiot `render_both`-funktiossa.
+- `render_both` builds the base (vegetation, undergrowth, low layer, north lines) and reads the height field and the slope once (`load_curve_inputs`). The
+  map with depressions is made first because it writes `formlines.dxf.bin`.
+- Decoded PNGs are released right after use (`into_rgba8()`, no copies).
+- New ini setting `render_nodepressions` (default `1`, as before). With `0` only the map with depressions is made.
+- `Timing` sections in `render_both`.
 
-Tulos (`K3414B1`): 22,8 s → 19,7 s, 1,40 GB → 1,07 GB. Asetuksella `render_nodepressions=0`: 16,4 s ja 875 MB.
+Result (`K3414B1`): 22.8 s → 19.7 s, 1.40 GB → 1.07 GB. With `render_nodepressions=0`: 16.4 s and 875 MB.
 
-### 2. Nearest-skaalaus ilman f32-välivaihetta (`60d5f5a`)
+### 2. Nearest-neighbour scaling without the f32 intermediate (`60d5f5a`)
 
-`image::imageops::resize` käyttää suodattimesta riippumatta f32-välikuvaa (`Rgba32F`). Skaalauksessa 3003² → 7093² se varasi noin 340 MB
-lisää ja vei 3,4 s. Nearest-suodattimella jokainen ulostulopikseli on yksi lähdepikseli painolla 1, joten arvo säilyy kokonaislukuna.
-Korvaava koodi laskee lähdepikselin samalla f32-kaavalla (`floor((x + 0,5) * suhde)`) ja kopioi suoraan u8-puskuriin. Yksikkötestit vertaavat
-tulosta kirjaston tulokseen eri kokoille ja rajatulle lähdealueelle.
+`image::imageops::resize` uses an f32 intermediate image (`Rgba32F`) whatever the filter. For 3003² → 7093² it allocated about 340 MB extra and took
+3.4 s. With the nearest filter every output pixel is one source pixel with weight 1, so the value stays an integer. The replacement computes the source
+pixel with the same f32 formula (`floor((x + 0.5) * ratio)`) and copies straight into a u8 buffer. Unit tests compare the result with the crate's for
+several sizes and for a cropped source area.
 
-Tulos: 19,7 s → 11,0 s, 1,07 GB → 0,70 GB. Pohjakerrokset 3,8 s → 0,96 s ja päällekkäiset kerrokset 3,0 s → 0,3 s per versio.
+Result: 19.7 s → 11.0 s, 1.07 GB → 0.70 GB. Base layers 3.8 s → 0.96 s, overlaid layers 3.0 s → 0.3 s per map.
 
-### 3. Kerrokset suoraan kankaalle (`e5311fe`)
+### 3. Layers straight onto the canvas (`e5311fe`)
 
-- `NearestView` (toteuttaa `GenericImageView`) lukee lähdepikselit vasta piirtohetkellä, joten skaalattuja kopioita ei tehdä. `image::imageops::overlay`
-  käyttää sitä sellaisenaan, joten sekoituslogiikka on täsmälleen sama.
-- `undergrowth.png` sekoitetaan rivi kerrallaan `png`-kirjastolla, kun sen koko vastaa kangasta (muuten käytetään vanhaa polkua). Koko kuvaa ei
-  koskaan pidetä muistissa dekoodattuna (säästö noin 200 MB).
-- Painanteettoman kartan pohja rakennetaan uudelleen (noin 0,4 s) kopion säilyttämisen (noin 200 MB) sijaan.
+- `NearestView` (implements `GenericImageView`) reads the source pixels only when they are drawn, so no scaled copies are made.
+  `image::imageops::overlay` uses it as it is, so the blending is exactly the same.
+- `undergrowth.png` is blended row by row with the `png` crate when its size matches the canvas (otherwise the old path is used). The whole image is never
+  held decoded (about 200 MB saved).
+- The base of the map without depressions is rebuilt (about 0.4 s) instead of keeping a copy (about 200 MB).
 
-Tulos: 703 MB → 452 MB, ja samalla kokonaisaika pysyi 11 sekunnissa. Muut tilet (vanha → uusi): `L3313A4` 17,3 → 5,3 s ja 1,37 → 0,45 GB,
-`R4233C4` 15,9 → 4,8 s ja 1,34 → 0,44 GB, `V4133E4` 28,7 → 18,1 s ja 1,42 → 0,51 GB.
+Result: 703 MB → 452 MB, with the total time staying at 11 s. Other sheets (old → new): `L3313A4` 17.3 → 5.3 s and 1.37 → 0.45 GB, `R4233C4` 15.9 → 4.8 s
+and 1.34 → 0.44 GB, `V4133E4` 28.7 → 18.1 s and 1.42 → 0.51 GB.
 
-### 4. Kumpareiden tunnistus: kaikkien parien silmukat pois (`71617b9`)
+### 4. Knot detection: no more all-pairs loops (`71617b9`)
 
-Ison lehden mittauksessa kumpareiden tunnistus vei 14,6 s. Lisätyt `Timing`-osiot (`knolldetector`) paikansivat kaksi silmukkaa
-(`bounding boxes and tops` 6,5 s ja `candidates` 8,1 s), joissa jokaista viivaa verrattiin kaikkiin pisteisiin ja korkeus haettiin kahdesti
-hajautustaulusta. Muut osat vievät yhteensä alle 0,3 s.
+On the large sheet the knoll detection took 14.6 s. The added `Timing` sections (`knolldetector`) located two loops (`bounding boxes and tops` 6.5 s and
+`candidates` 8.1 s) in which every line was compared with every point and the height was looked up twice from a hash map. The other parts take under 0.3 s
+together.
 
-- `elevation` on nyt `Vec<f64>` viivan indeksillä (hajautustaulun tilalla).
-- `PointGrid` (100 m:n tasaruudukko) hakee rajauslaatikon sisällä olevat pisteet. Hakutulos on järjestetty alkuperäiseen listajärjestykseen, joten
-  ensimmäinen osuma (`topid`) ja "mikä tahansa osuma" (`skip`) ovat samat kuin ennen.
+- `elevation` is now a `Vec<f64>` indexed by the line (instead of a hash map).
+- `PointGrid` (a regular 100 m grid) finds the points inside a bounding box. The result is sorted in the original list order, so the first hit (`topid`)
+  and the "any hit" (`skip`) are the same as before.
 
-Tulos: molemmat silmukat noin 20 ms. Iso lehti 24,2 s → 9,9 s. Kaikki väliaikaistiedostot ja PNG:t tavu-identtiset.
+Result: both loops take about 20 ms. Large sheet 24.2 s → 9.9 s. All temp files and PNGs byte-identical.
 
-### 5. Tila `vector_output` (`1ad340b`)
+### 5. The `vector_output` mode (`1ad340b`)
 
-Vektoriaineisto ei tarvitse PNG-karttoja eikä kaikkia tekstimuotoisia DXF-tiedostoja. Ini-asetus `vector_output = 1` (käytä yhdessä
-`output_dxf=0`:n kanssa):
+A vector pipeline needs neither the PNG maps nor all the text DXF files. The ini setting `vector_output = 1` (use it with `output_dxf=0`):
 
-- **ohittaa PNG-renderöinnin.** Muotoviivat (`formlines.dxf.bin`) tuotetaan silti `draw_curves`-funktiolla ilman kuvaa.
-- **laskee vesiruudut pullautinissa** (`vegetation::watercells` → `temp/water.txt`): 3 m:n ruudut, joissa on vesiluokan pisteitä, rivinä
-  `x y vesi yhteensä`. Aiempi tapa muunsi pisteet tekstiksi (`internal2xyz`) ja laski `awk`:lla: 9,2 s → 0,16 s, ja tuloksena samat 2994 ruutua.
-- **kirjoittaa tekstimuotoisen DXF:n vain viidestä kerroksesta** (`out2`, `formlines`, `c2g`, `c3g`, `dotknolls`). Muiden vaiheiden DXF:t jäävät
-  pois: pelkkä `contours03.dxf` oli 144,6 MB tekstiä (muut: `out.dxf` 15,9 MB, `out2.dxf` 19,7 MB, `formlines.dxf` 6,9 MB).
+- **skips the PNG rendering.** The form lines (`formlines.dxf.bin`) are still made by `draw_curves`, without an image.
+- **computes the water cells in karttapullautin** (`vegetation::watercells` → `temp/water.txt`): 3 m cells that contain water-class points, one line
+  `x y water total` per cell. The earlier way converted the points to text (`internal2xyz`) and counted with `awk`: 9.2 s → 0.16 s, with the same 2994 cells.
+- **writes text DXF of only five layers** (`out2`, `formlines`, `c2g`, `c3g`, `dotknolls`). The DXFs of the other steps are left out: `contours03.dxf` alone was
+  144.6 MB of text (the others: `out.dxf` 15.9 MB, `out2.dxf` 19.7 MB, `formlines.dxf` 6.9 MB).
 
-Tulos (iso lehti): 9,9 s → 8,0 s, 466 MB → 315 MB. Viisi DXF-tiedostoa ja `vegetation.png` ovat tavu-identtiset normaaliajon kanssa.
+Result (large sheet): 9.9 s → 8.0 s, 466 MB → 315 MB. The five DXF files and `vegetation.png` are byte-identical to the normal run.
 
-## Koko ketju (yhdeksän lehden testialue)
+### 6. Contours: visit only the cells a level crosses (`3b1af02`)
 
-| Vaihe | Aika |
+Profiling a large sheet (8.2 M points, 6.0 s in all) showed that `knoll detection part 1` (2.43 s) is in practice one call: `heightmap2contours` with a 0.3 m
+interval (2.6 s; reading the points takes only 0.18 s). `grid2contours` scanned the whole grid of 2.25 M cells for every contour level (208 of them), although
+most cells do not cross a given level.
+
+The cells are now bucketed by the levels between their lowest and highest corner before the loop, and visited in the same i, j order as a full scan would.
+The levels are computed with the same `level += v` summation as before. The result is **byte-identical** (11 files compared: all `.dxf.bin` and `.hmap`).
+
+| | Before | Now |
+|---|---|---|
+| `knoll detection part 1` | 2.43 s | 1.23 s |
+| `contour generation part 2` (2.5 m contours) | 0.30 s | 0.17 s |
+| whole sheet (`vector_output`) | 7.26 s | 6.0 s |
+
+What remains of `heightmap2contours` is the segment search (0.58 s, 8.1 M end points) and chaining the polylines through a hash map (0.31 s). They were not
+changed; possible follow-ups are running the levels in parallel and replacing the hash map with a grid index.
+
+## Time spent after these changes (large sheet, `vector_output`, 6.0 s)
+
+| Step | Time |
 |---|---|
-| pullautin, yhdeksän lehteä peräkkäin | 69 s |
-| `stitch_veg.py` (mosaiikki ja vesiruudut) | 4 s |
-| `vegetation_polygons.py` (mosaiikki) | 53 s |
-| `build_mvt.py` | 24 s |
-| **Yhteensä** | **150 s (16,7 s per lehti)** |
+| vegetation generation | 2.0 s |
+| knoll detection part 1 (`contours03`) | 1.23 s |
+| reading the LAZ (`preparing input file`) | 0.94 s |
+| cliff generation | 0.73 s |
+| contour generation 1-4 | 0.55 s |
+| knoll detection part 2 | 0.22 s |
+| water cells | 0.16 s |
+| DXF/bin outputs, form lines | 0.16 s |
 
-Jäljellä oleva Python-osuus on yli puolet ajasta. cProfile ei näytä yksittäistä pullonkaulaa: kirjastojen lataus 1,2 s, tasoitus 1,9 s,
-suorakulmioiden yhdistäminen noin 1,5 s. Merkittävä nopeutus vaatisi Rust-portin (`.dxf.bin`-tiedostojen ja luokkaruudukon suora luku, MVT:n
-kirjoitus). Sen arvioin tuovan lehden aikaan noin 10 s; sitä ei ole tehty.
+There is no parallelism inside one sheet except the `image` crate's rayon in the PNG rendering (which `vector_output` skips) and the optional parallel LAZ
+decompression (`parallel_laz_decompression`). One sheet uses about 1.5 of 8 cores; `processes` runs several sheets at the same time.
 
-## Aineiston kokoon liittyvät valinnat (tiilet)
+## Checks and how to repeat them
 
-Nämä eivät muuta pullautinia vaan MVT-tiilien kokoa (`proxy-server/mapant-tiles/`, `proxy-server/doc/mapant-vector-tiles.md`):
+- `cargo fmt --check`, `cargo clippy --release` (no warnings) and `cargo test --release` (70 tests) pass.
+- New unit tests: `nearest_view_matches_image_crate` and `nearest_view_uses_only_the_cropped_part` (`src/render.rs`).
+- Comparison: run the original and the new binary on the same LAZ file in different folders and `cmp` `pullautus.png`, `pullautus_depr.png` and all files of
+  `temp/`. In the vector mode compare `out2.dxf`, `formlines.dxf`, `c2g.dxf`, `c3g.dxf`, `dotknolls.dxf` and `vegetation.png`.
+- Read the times with `RUST_LOG=debug pullauta <file>.laz` and the `Leaving section` lines.
 
-- **Vegetaatio on vektoria 3 m:n ruudukosta.** Pienet polygonit ja reiät (alle 36 m²) pudotetaan, vesi rajataan pois, keltainen suljetaan 15 m:n
-  raoilta ja renkaat tasoitetaan (σ = 6 m) ja yksinkertaistetaan (2 m). Testilehdellä `M4211E3` MVT-tyyppinen arvio 72 kt → 59 kt (tasoitus) →
-  45 kt (keltaisen sulkeminen); metsäisellä `V4133E4`:llä 108 kt → 59 kt.
-- **Käyriä yksinkertaistetaan 0,3 m:llä** (Douglas–Peucker) ennen projisointia; pullautin on jo tasoittanut ja harventanut ne.
-- **Vain z14 tallennetaan.** OpenLayers hakee samat tiilet myös zoomeilla alle 14, joten alempia tasoja ei tarvita. Testialue on yhteensä 2,38 MB (72 tiiltä,
-  mediaani 37 kt).
+## What was not done
 
-## Tarkistus ja toistaminen
+- GPU computing was not tried: the heavy steps are branching geometry, and the measurements put the bottlenecks elsewhere (loops, copies).
+- The `thinfactor` setting (thinning of the points) was not used, because it would change the result.
+- The stamping of the curves was not changed, because the measurement did not show it to be a bottleneck.
 
-- `cargo fmt --check`, `cargo clippy --release` (ei varoituksia) ja `cargo test --release` (70 testiä) menevät läpi.
-- Uudet yksikkötestit: `nearest_view_matches_image_crate` ja `nearest_view_uses_only_the_cropped_part` (`src/render.rs`).
-- Vertailu: aja alkuperäinen ja uusi binääri samalla LAZ-tiedostolla eri hakemistoihin ja vertaa (`cmp`) `pullautus.png`, `pullautus_depr.png` ja kaikki
-  `temp/`-tiedostot. Vektoritilassa vertaa `out2.dxf`, `formlines.dxf`, `c2g.dxf`, `c3g.dxf`, `dotknolls.dxf` ja `vegetation.png`.
-- Ajojen aikojen lukeminen: `RUST_LOG=debug pullauta <tiedosto>.laz` ja rivit `Leaving section`.
+## Commits
 
-## Mitä ei tehty
-
-- GPU-laskentaa ei kokeiltu: raskaat vaiheet ovat haarautuvaa geometriaa, ja mittaus osoitti pullonkaulat muualla (silmukat, kopiot).
-- Vegetaation vektorointia ja MVT-rakennusta ei ole siirretty Rustiin (ks. yllä).
-- Konfiguraatiota `thinfactor` (pisteiden harvennus) ei käytetty, koska se muuttaisi tulosta.
-- Käyräpiirron leimausta ei muutettu, koska mittaus ei osoittanut sitä pullonkaulaksi.
-
-## Commitit (haara `render-optimization`)
-
-| Commit | Sisältö |
+| Commit | Content |
 |---|---|
 | `60d5f5a` | `render_both`, `render_nodepressions`, `resize_nearest` |
-| `e5311fe` | `NearestView`, rivi kerrallaan luettu undergrowth, pohjan uudelleenrakennus |
-| `71617b9` | kumpareiden tunnistus: `PointGrid` ja `Vec`-korkeudet |
-| `1ad340b` | `vector_output`, `watercells`, DXF vain lopullisista kerroksista |
+| `e5311fe` | `NearestView`, row by row undergrowth, rebuilding the base |
+| `71617b9` | knoll detection: `PointGrid` and `Vec` elevations |
+| `1ad340b` | `vector_output`, `watercells`, DXF of the final layers only |
+| `3b1af02` | contours: cells bucketed by level |
