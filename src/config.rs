@@ -110,6 +110,10 @@ pub struct Config {
 
     pub depressions_color: (u8, u8, u8),
     pub decorate_depressions: bool,
+    /// Also write the map without depressions (`pullautus.png`). Default on.
+    pub render_nodepressions: bool,
+    /// Produce only what the vector tiles need: no PNG maps, the water cells, text DXF of the final layers only.
+    pub vector_output: bool,
 }
 
 pub struct Zone {
@@ -356,6 +360,8 @@ impl Config {
             )
         };
         let decorate_depressions = gs.get("decorate_depressions").unwrap_or("0") == "1";
+        let render_nodepressions = gs.get("render_nodepressions").unwrap_or("1") == "1";
+        let vector_output = gs.get("vector_output").unwrap_or("0") == "1";
 
         let batch = gs.get("batch").unwrap() == "1";
         if batch && processes == 0 {
@@ -446,6 +452,8 @@ impl Config {
             remove_touching_contours,
             depressions_color,
             decorate_depressions,
+            render_nodepressions,
+            vector_output,
         })
     }
 }
