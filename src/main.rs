@@ -151,74 +151,83 @@ fn main() {
         return;
     }
 
-    if command == "vectortiles" {
-        let threads: usize = args
-            .iter()
-            .position(|a| a == "--threads")
-            .map(|i| {
-                args.get(i + 1)
-                    .and_then(|n| n.parse().ok())
-                    .expect("--threads needs a number")
-            })
-            .unwrap_or(2);
-        let crs = args
-            .iter()
-            .position(|a| a == "--crs")
-            .map(|i| {
-                let name = args.get(i + 1).expect("--crs needs a coordinate system");
-                pullauta::vectortiles::project::Crs::parse(name).unwrap_or_else(|e| {
-                    eprintln!("--crs: {e}");
-                    std::process::exit(2)
+    // the vector tile builder reads and writes files and uses clocks: not part of the browser/WebAssembly builds
+    #[cfg(not(target_family = "wasm"))]
+    {
+        if command == "vectortiles" {
+            let threads: usize = args
+                .iter()
+                .position(|a| a == "--threads")
+                .map(|i| {
+                    args.get(i + 1)
+                        .and_then(|n| n.parse().ok())
+                        .expect("--threads needs a number")
                 })
-            })
-            .unwrap_or_default();
-        let overview_zoom = args
-            .iter()
-            .position(|a| a == "--overview-zoom")
-            .map(|i| match args.get(i + 1).map(String::as_str) {
-                Some("none") => None,
-                Some(n) => Some(n.parse().expect("--overview-zoom needs a number or none")),
-                None => panic!("--overview-zoom needs a number or none"),
-            })
-            .unwrap_or(Some(13));
-        let mut positional: Vec<&String> = Vec::new();
-        let mut skip = false;
-        for a in &args {
-            if skip {
-                skip = false;
-            } else if a == "--threads" || a == "--crs" || a == "--overview-zoom" {
-                skip = true;
-            } else if !a.starts_with("--") {
-                positional.push(a);
+                .unwrap_or(2);
+            let crs = args
+                .iter()
+                .position(|a| a == "--crs")
+                .map(|i| {
+                    let name = args.get(i + 1).expect("--crs needs a coordinate system");
+                    pullauta::vectortiles::project::Crs::parse(name).unwrap_or_else(|e| {
+                        eprintln!("--crs: {e}");
+                        std::process::exit(2)
+                    })
+                })
+                .unwrap_or_default();
+            let overview_zoom = args
+                .iter()
+                .position(|a| a == "--overview-zoom")
+                .map(|i| match args.get(i + 1).map(String::as_str) {
+                    Some("none") => None,
+                    Some(n) => Some(n.parse().expect("--overview-zoom needs a number or none")),
+                    None => panic!("--overview-zoom needs a number or none"),
+                })
+                .unwrap_or(Some(13));
+            let mut positional: Vec<&String> = Vec::new();
+            let mut skip = false;
+            for a in &args {
+                if skip {
+                    skip = false;
+                } else if a == "--threads" || a == "--crs" || a == "--overview-zoom" {
+                    skip = true;
+                } else if !a.starts_with("--") {
+                    positional.push(a);
+                }
             }
-        }
-        if positional.len() < 2 {
-            eprintln!(
-                "USAGE: pullauta vectortiles <folder of pullautin runs> <output folder> [--no-tile-files] [--threads N] [--crs <name>] [--overview-zoom N|none]\n\
-                 Every folder of runs that has a temp folder is a sheet: pullautin must have been run with vector_output=1\n\
-                 (temp must hold the .dxf.bin files of the layers, vegetation.png, vegetation.pgw and water.txt).\n\
-                 Writes map.pmtiles and metadata.json, and the tiles as tiles/z/x/y.pbf unless --no-tile-files is given.\n\
-                 --threads N sets the threads of the vegetation polygons (default 2, 0 = all cores, 1 = one thread).\n\
-                 --crs sets the coordinate system of the runs, any projected CRS in metres: an EPSG code (3067, EPSG:25832), a UTM zone (utm33n, etrs89utm32),\n\
-                 tm35fin (default, Finland), sweref99tm (Sweden) or a PROJ string (\"+proj=utm +zone=33 +ellps=GRS80 +units=m\").\n\
-                 --overview-zoom N adds a lighter, simplified zoom N below z14 (default 13, none = only z14)."
-            );
+            if positional.len() < 2 {
+                eprintln!(
+                    "USAGE: pullauta vectortiles <folder of pullautin runs> <output folder> [--no-tile-files] [--threads N] [--crs <name>] [--overview-zoom N|none]\n\
+                     Every folder of runs that has a temp folder is a sheet: pullautin must have been run with vector_output=1\n\
+                     (temp must hold the .dxf.bin files of the layers, vegetation.png, vegetation.pgw and water.txt).\n\
+                     Writes map.pmtiles and metadata.json, and the tiles as tiles/z/x/y.pbf unless --no-tile-files is given.\n\
+                     --threads N sets the threads of the vegetation polygons (default 2, 0 = all cores, 1 = one thread).\n\
+                     --crs sets the coordinate system of the runs, any projected CRS in metres: an EPSG code (3067, EPSG:25832), a UTM zone (utm33n, etrs89utm32),\n\
+                     tm35fin (default, Finland), sweref99tm (Sweden) or a PROJ string (\"+proj=utm +zone=33 +ellps=GRS80 +units=m\").\n\
+                     --overview-zoom N adds a lighter, simplified zoom N below z14 (default 13, none = only z14)."
+                );
+                return;
+            }
+            let options = pullauta::vectortiles::BuildOptions {
+                tile_files: !args.iter().any(|a| a == "--no-tile-files"),
+                threads,
+                crs,
+                overview_zoom,
+                ..Default::default()
+            };
+            let stats = pullauta::vectortiles::build(
+                std::path::Path::new(positional[0]),
+                std::path::Path::new(positional[1]),
+                &options,
+            )
+            .unwrap();
+            info!("done: {} tiles from {} sheets", stats.tiles, stats.sheets);
             return;
         }
-        let options = pullauta::vectortiles::BuildOptions {
-            tile_files: !args.iter().any(|a| a == "--no-tile-files"),
-            threads,
-            crs,
-            overview_zoom,
-            ..Default::default()
-        };
-        let stats = pullauta::vectortiles::build(
-            std::path::Path::new(positional[0]),
-            std::path::Path::new(positional[1]),
-            &options,
-        )
-        .unwrap();
-        info!("done: {} tiles from {} sheets", stats.tiles, stats.sheets);
+    }
+    #[cfg(target_family = "wasm")]
+    if command == "vectortiles" {
+        info!("vectortiles is not available in the WebAssembly build");
         return;
     }
 

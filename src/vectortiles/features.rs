@@ -459,25 +459,27 @@ mod overview_tests {
 
     #[test]
     fn the_overview_keeps_the_main_contours_and_big_cliffs_and_drops_the_rest() {
-        let mut f = Features::default();
-        f.contour = vec![
-            line("index", 500.0),
-            line("normal", 500.0),
-            line("intermed", 500.0),
-            line("depression", 500.0),
-            line("normal", 30.0),
-        ];
-        f.formline = vec![line("", 500.0)];
-        f.cliff = vec![
-            line("cliff2", 100.0),
-            line("cliff3", 100.0),
-            line("cliff4", 100.0),
-            line("cliff2", 20.0),
-        ];
-        f.knoll = vec![PointFeature {
-            point: (1.0, 1.0),
-            props: vec![],
-        }];
+        let f = Features {
+            contour: vec![
+                line("index", 500.0),
+                line("normal", 500.0),
+                line("intermed", 500.0),
+                line("depression", 500.0),
+                line("normal", 30.0),
+            ],
+            formline: vec![line("", 500.0)],
+            cliff: vec![
+                line("cliff2", 100.0),
+                line("cliff3", 100.0),
+                line("cliff4", 100.0),
+                line("cliff2", 20.0),
+            ],
+            knoll: vec![PointFeature {
+                point: (1.0, 1.0),
+                props: vec![],
+            }],
+            ..Default::default()
+        };
         let o = f.overview();
         let kinds = |l: &[LineFeature]| {
             l.iter()
