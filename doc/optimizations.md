@@ -184,11 +184,13 @@ Parameter: `--threads N` (`BuildOptions::threads`); 0 = all cores, 1 = one threa
 The speed-up stays small (1.44×) because building the grid, naming and reading are single-threaded and one large area dominates the parallel part. The default
 is 2 so that `vectortiles` does not take all cores from other work.
 
-### 9. SWEREF 99 TM (`cc843ed`)
+### 9. Any coordinate system: proj4rs (`cc843ed`, rewritten after review)
 
-`project.rs` takes the central meridian as a parameter (TM35FIN 27°, SWEREF 99 TM 15°); GRS80, the scale 0.9996 and the false easting are the same.
-The command takes `--crs sweref99tm` (default `tm35fin`). Tests: three points against pyproj's `EPSG:3006 → 3857` to under 1 mm, and name parsing. The bounds in the
-tiles' `metadata.json` landed at the expected coordinates. There are now 96 tests.
+The first version had the Krüger series of a GRS80 transverse Mercator zone (TM35FIN 27°, SWEREF 99 TM 15°). The review asked for any CRS, so the projection is now done
+by [proj4rs](https://github.com/3liz/proj4rs) (pure Rust, with the `crs-definitions` EPSG database): `--crs` takes an EPSG code, a UTM zone name, `tm35fin`, `sweref99tm` or
+a PROJ string, and refuses a geographic CRS. The output for TM35FIN is **byte-identical** to the hand-written series (9 sheets, 72 tiles, 2 691 237 bytes), and a little
+faster (4.97 s against 5.47 s). Tests: pyproj reference points for EPSG:3067, 3006, 25832, 32633, 32735, 3035 and a PROJ string to under 1 mm, the national grids on an old
+datum (EPSG:28992, 27700, 2056) to a few metres, and the name parsing and the errors. There are now 106 tests.
 
 ### 10. Overview zoom z13 (`6b61304`)
 

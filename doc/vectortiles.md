@@ -33,7 +33,7 @@ run folders    --pullauta vectortiles-------> map.pmtiles (+ metadata.json, tile
 |---|---|
 | `--no-tile-files` | write only `map.pmtiles` and `metadata.json`, not `tiles/z/x/y.pbf` |
 | `--threads N` | threads of the vegetation polygons (default 2, 0 = all cores, 1 = one); the output is byte-identical for every N |
-| `--crs tm35fin\|sweref99tm` | the coordinate system of the runs: ETRS-TM35FIN (EPSG:3067, default) or SWEREF 99 TM (EPSG:3006) |
+| `--crs <name>` | the coordinate system of the runs, **any projected CRS in metres** (default `tm35fin`): an EPSG code (`3067`, `EPSG:25832`), a UTM zone (`utm33n`, `utm35s`, `etrs89utm32`), `tm35fin`, `sweref99tm` or a PROJ string (`"+proj=utm +zone=33 +ellps=GRS80 +units=m"`); see below |
 | `--overview-zoom N\|none` | a lighter, simplified zoom N below z14 (default 13); `none` = only z14 |
 
 A folder of runs can be any size, but the vegetation of all sheets is joined into one mosaic (one byte per metre), so build large areas in blocks of
@@ -69,6 +69,18 @@ lines or knolls). An application overzooms z14.
 PMTiles v3 written directly (Hilbert tile ids, root and leaf directories, gzip); the tile data streams to a temporary file, so memory does not grow with the
 number of tiles. A tile server that serves every `*.pmtiles` of a directory and merges the tiles that two archives share can serve an area built in
 blocks. Tested with `osm-mapsforge serve` of the Karttahimmeli proxy-server and with the Python `pmtiles` reader and OpenLayers' MVT format.
+
+## Coordinate systems
+
+The coordinates of the pullauta output are in the CRS of the laser data (they come out of the LAZ file as they are), and `vectortiles` projects them to Web Mercator
+with [proj4rs](https://github.com/3liz/proj4rs), a pure Rust port of PROJ.4 (no C library). `--crs` takes an EPSG code with or without the `EPSG:` prefix (the
+definitions of the `crs-definitions` database, about 6 000 codes), a UTM zone name (`utm33n`, `utm33s`, `wgs84utm33n` for WGS 84; `etrs89utm32` for ETRS89, zones 28-38),
+the short names `tm35fin` (EPSG:3067, Finland, the default) and `sweref99tm` (EPSG:3006, Sweden), or any PROJ string that starts with `+`. A geographic CRS
+(longitude/latitude, e.g. `4326`) is refused: the output of pullauta, its tolerances and the pixel size of the vegetation are in metres.
+
+A datum shift uses the 3 or 7 parameters of the definition, not grid files (NTv2 and the like): for ETRS89, SWEREF 99 and WGS 84 based systems the result matches PROJ
+to a millimetre; national grids on an older datum (British National Grid, Dutch RD, Swiss LV03) are within a metre or two, which is far below one pixel of a z14 tile (9 m).
+For a CRS with a datum that needs a grid, give a PROJ string with the best `+towgs84` you have, or transform the laser data first.
 
 ## Sweden
 

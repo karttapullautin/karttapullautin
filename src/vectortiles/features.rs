@@ -1,7 +1,7 @@
 //! The features of the tile layers in Web Mercator metres, read from the `.dxf.bin` files of a pullautin run.
 
 use super::mvt::Value;
-use super::project::Tm35finToMercator;
+use super::project::Projection;
 use super::simplify::{douglas_peucker, simplify_ring};
 use crate::geometry::{BinaryDxf, Classification, Geometry};
 use std::path::Path;
@@ -339,7 +339,7 @@ impl Features {
     }
 
     /// Adds the layers of one sheet: `temp` is the `temp` folder of its pullautin run.
-    pub fn add_sheet(&mut self, temp: &Path, projection: &Tm35finToMercator) -> anyhow::Result<()> {
+    pub fn add_sheet(&mut self, temp: &Path, projection: &Projection) -> anyhow::Result<()> {
         let project = |points: &[(f64, f64)]| -> Vec<(f64, f64)> {
             points
                 .iter()

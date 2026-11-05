@@ -103,7 +103,7 @@ pub fn sheet_scan_year(folder: &Path) -> Option<u16> {
 /// For each tile of a zoom the first and last scan year of the sheets that touch it (by the sheet's bounds)
 fn scan_years_by_tile(
     sheets: &[PathBuf],
-    projection: &project::Tm35finToMercator,
+    projection: &project::Projection,
     zoom: u8,
 ) -> tiler::TileYears {
     let mut years = std::collections::HashMap::new();

@@ -1,122 +1,121 @@
-//! ETRS-TM35FIN (EPSG:3067) or SWEREF 99 TM (EPSG:3006) to Web Mercator (EPSG:3857). The two differ only in the central meridian
-//! (27 and 15 degrees east); both use the GRS80 ellipsoid, scale 0.9996 and false easting 500 000 m.
-//!
-//! The inverse transverse Mercator is the Krüger n-series of Karney (2011), to n^5, on the GRS80 ellipsoid; ETRS89 and WGS84 are
-//! taken as the same datum, as proj does. The error is far below a millimetre inside Finland and Sweden.
+//! The coordinate system of the pullautin output to Web Mercator (EPSG:3857), for any projected CRS: an EPSG code (`EPSG:3067`, `3006`, `25832` ...),
+//! a PROJ string (`"+proj=utm +zone=33 +ellps=GRS80 +units=m"`), a UTM zone (`utm33n`, `etrs89utm32`) or one of the short names `tm35fin` and `sweref99tm`.
+//! The transformation is done by `proj4rs`, a Rust port of PROJ.4 (no C library): the CRS definitions are the ones of its `crs-definitions` database, and a
+//! datum shift uses the 3 or 7 parameters of the definition, not grid files (accurate to about a metre for national grids on an old datum, to a millimetre
+//! for the ETRS89, SWEREF 99 and WGS 84 based ones, which is far below a pixel of a z14 tile, 9 m).
+//! The coordinates of the pullautin output must be in metres: a geographic (longitude/latitude) CRS is refused.
 
-use std::f64::consts::PI;
+use proj4rs::Proj;
 
-const A: f64 = 6_378_137.0;
-const F: f64 = 1.0 / 298.257_222_101;
-const K0: f64 = 0.9996;
-const FALSE_EASTING: f64 = 500_000.0;
-const TM35FIN_CENTRAL_MERIDIAN_DEG: f64 = 27.0;
-const SWEREF99TM_CENTRAL_MERIDIAN_DEG: f64 = 15.0;
+/// The coordinate system of the pullautin output: a definition that `proj4rs` has accepted (`EPSG:3067`, `+proj=...`).
+/// The default is ETRS-TM35FIN (Finland).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Crs {
+    definition: String,
+}
 
-/// The coordinate system of the pullautin output
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Crs {
-    /// ETRS-TM35FIN, EPSG:3067 (Finland)
-    #[default]
-    Tm35fin,
-    /// SWEREF 99 TM, EPSG:3006 (Sweden)
-    Sweref99Tm,
+impl Default for Crs {
+    fn default() -> Self {
+        Self {
+            definition: "EPSG:3067".to_string(),
+        }
+    }
+}
+
+/// UTM zone names: `utm33n`, `utm33s`, `wgs84utm33n` (WGS 84, EPSG:326xx / 327xx) and `etrs89utm32`, `etrs89utm32n` (EPSG:258xx, zones 28-38)
+fn utm_epsg(name: &str) -> Option<u16> {
+    let (etrs, rest) = match name.strip_prefix("etrs89utm") {
+        Some(rest) => (true, rest),
+        None => (
+            false,
+            name.strip_prefix("wgs84utm")
+                .or_else(|| name.strip_prefix("utm"))?,
+        ),
+    };
+    let south = rest.ends_with('s');
+    let digits = rest.trim_end_matches(['n', 's']);
+    let zone: u16 = digits.parse().ok().filter(|z| (1..=60).contains(z))?;
+    if etrs {
+        (!south && (28..=38).contains(&zone)).then_some(25800 + zone)
+    } else {
+        Some(if south { 32700 } else { 32600 } + zone)
+    }
 }
 
 impl Crs {
-    pub fn projection(self) -> Tm35finToMercator {
-        match self {
-            Crs::Tm35fin => Tm35finToMercator::new(),
-            Crs::Sweref99Tm => {
-                Tm35finToMercator::with_central_meridian(SWEREF99TM_CENTRAL_MERIDIAN_DEG)
+    /// Builds the CRS from a name (case, spaces, `-` and `_` do not matter): `tm35fin`, `sweref99tm`, `utm33n`, `etrs89utm32`, an EPSG code with or without
+    /// the `EPSG:` prefix, or a PROJ string that starts with `+`. The error says what was wrong.
+    pub fn parse(name: &str) -> Result<Self, String> {
+        let name = name.trim();
+        let definition = if name.starts_with('+') {
+            name.to_string()
+        } else {
+            let key = name.to_ascii_lowercase().replace(['-', '_', ' '], "");
+            let code = match key.as_str() {
+                "tm35fin" | "etrstm35fin" => Some(3067),
+                "sweref99tm" | "sweref99" => Some(3006),
+                "wgs84" => Some(4326), // refused below with the reason (geographic)
+                _ => utm_epsg(&key)
+                    .or_else(|| key.strip_prefix("epsg:").unwrap_or(&key).parse().ok()),
+            };
+            match code {
+                Some(code) => format!("EPSG:{code}"),
+                None => {
+                    return Err(format!(
+                        "unknown coordinate system \"{name}\": use an EPSG code (3067, EPSG:25832), a UTM zone (utm33n, etrs89utm32), tm35fin, sweref99tm or a PROJ string (\"+proj=...\")"
+                    ));
+                }
             }
+        };
+        let proj = Proj::from_user_string(&definition)
+            .map_err(|e| format!("coordinate system \"{name}\" ({definition}): {e}"))?;
+        if proj.is_latlong() {
+            return Err(format!(
+                "coordinate system \"{name}\" is geographic: the pullautin output must be in a projected CRS in metres"
+            ));
         }
+        Ok(Self { definition })
     }
 
-    pub fn parse(name: &str) -> Option<Self> {
-        match name
-            .to_ascii_lowercase()
-            .replace(['-', '_', ' '], "")
-            .as_str()
-        {
-            "tm35fin" | "etrstm35fin" | "3067" | "epsg3067" => Some(Crs::Tm35fin),
-            "sweref99tm" | "sweref99" | "3006" | "epsg3006" => Some(Crs::Sweref99Tm),
-            _ => None,
-        }
+    /// The definition (`EPSG:3067` or the PROJ string) as it is passed to `proj4rs`
+    pub fn definition(&self) -> &str {
+        &self.definition
+    }
+
+    pub fn projection(&self) -> Projection {
+        Projection::new(self)
     }
 }
 
-/// Constants of the series, computed once (the name is historical: any GRS80 transverse Mercator zone of scale 0.9996).
-pub struct Tm35finToMercator {
-    central_meridian_deg: f64,
-    /// k0 * rectifying radius
-    scale: f64,
-    beta: [f64; 5],
-    delta: [f64; 5],
+/// The transformation from the CRS of the pullautin output to Web Mercator metres
+pub struct Projection {
+    source: Proj,
+    mercator: Proj,
 }
 
-impl Default for Tm35finToMercator {
+impl Default for Projection {
+    /// ETRS-TM35FIN, the default CRS
     fn default() -> Self {
-        Self::new()
+        Crs::default().projection()
     }
 }
 
-impl Tm35finToMercator {
-    pub fn new() -> Self {
-        Self::with_central_meridian(TM35FIN_CENTRAL_MERIDIAN_DEG)
-    }
-
-    pub fn with_central_meridian(central_meridian_deg: f64) -> Self {
-        let n = F / (2.0 - F);
-        let (n2, n3, n4, n5, n6) = (n * n, n.powi(3), n.powi(4), n.powi(5), n.powi(6));
-        let rectifying = A / (1.0 + n) * (1.0 + n2 / 4.0 + n4 / 64.0 + n6 / 256.0);
-        let beta = [
-            n / 2.0 - 2.0 * n2 / 3.0 + 37.0 * n3 / 96.0 - n4 / 360.0 - 81.0 * n5 / 512.0,
-            n2 / 48.0 + n3 / 15.0 - 437.0 * n4 / 1440.0 + 46.0 * n5 / 105.0,
-            17.0 * n3 / 480.0 - 37.0 * n4 / 840.0 - 209.0 * n5 / 4480.0,
-            4397.0 * n4 / 161_280.0 - 11.0 * n5 / 504.0,
-            4583.0 * n5 / 161_280.0,
-        ];
-        let delta = [
-            2.0 * n - 2.0 * n2 / 3.0 - 2.0 * n3 + 116.0 * n4 / 45.0 + 26.0 * n5 / 45.0,
-            7.0 * n2 / 3.0 - 8.0 * n3 / 5.0 - 227.0 * n4 / 45.0 + 2704.0 * n5 / 315.0,
-            56.0 * n3 / 15.0 - 136.0 * n4 / 35.0 - 1262.0 * n5 / 105.0,
-            4279.0 * n4 / 630.0 - 332.0 * n5 / 35.0,
-            4174.0 * n5 / 315.0,
-        ];
+impl Projection {
+    fn new(crs: &Crs) -> Self {
         Self {
-            central_meridian_deg,
-            scale: K0 * rectifying,
-            beta,
-            delta,
+            // the definition was accepted by Crs::parse; the default is a known EPSG code
+            source: Proj::from_user_string(&crs.definition).expect("a CRS that parse accepted"),
+            mercator: Proj::from_epsg_code(3857).expect("EPSG:3857 is in the definitions"),
         }
     }
 
-    /// Longitude and latitude in radians.
-    pub fn to_lon_lat(&self, easting: f64, northing: f64) -> (f64, f64) {
-        let xi = northing / self.scale;
-        let eta = (easting - FALSE_EASTING) / self.scale;
-
-        let mut xi_p = xi;
-        let mut eta_p = eta;
-        for (j, b) in self.beta.iter().enumerate() {
-            let k = 2.0 * (j as f64 + 1.0);
-            xi_p -= b * (k * xi).sin() * (k * eta).cosh();
-            eta_p -= b * (k * xi).cos() * (k * eta).sinh();
-        }
-        let chi = (xi_p.sin() / eta_p.cosh()).asin();
-        let mut lat = chi;
-        for (j, d) in self.delta.iter().enumerate() {
-            lat += d * (2.0 * (j as f64 + 1.0) * chi).sin();
-        }
-        let lon = self.central_meridian_deg.to_radians() + eta_p.sinh().atan2(xi_p.cos());
-        (lon, lat)
-    }
-
-    /// Web Mercator metres.
+    /// Web Mercator metres; (NaN, NaN) for a point the projection cannot handle
     pub fn to_mercator(&self, easting: f64, northing: f64) -> (f64, f64) {
-        let (lon, lat) = self.to_lon_lat(easting, northing);
-        (A * lon, A * (PI / 4.0 + lat / 2.0).tan().ln())
+        let mut point = (easting, northing);
+        match proj4rs::transform::transform(&self.source, &self.mercator, &mut point) {
+            Ok(()) => point,
+            Err(_) => (f64::NAN, f64::NAN),
+        }
     }
 }
 
@@ -127,8 +126,8 @@ pub const MERCATOR_ORIGIN: f64 = 20_037_508.342_789_244;
 mod tests {
     use super::*;
 
-    // (easting, northing, x, y) from pyproj: Transformer.from_crs("EPSG:3067", "EPSG:3857", always_xy=True)
-    const REFERENCE: [(f64, f64, f64, f64); 7] = [
+    // (easting, northing, x, y) from pyproj: Transformer.from_crs(code, "EPSG:3857", always_xy=True)
+    const TM35FIN: [(f64, f64, f64, f64); 7] = [
         (325312.80, 6811892.80, 2641372.269635, 8718605.957155),
         (320000.00, 6807000.00, 2630842.175192, 8707852.144477),
         (326000.00, 6813000.00, 2642687.205665, 8720985.957425),
@@ -137,28 +136,32 @@ mod tests {
         (700000.00, 7700000.00, 3571468.514940, 10855579.282223),
         (100000.00, 6650000.00, 2211236.100726, 8353938.132683),
     ];
-
-    #[test]
-    fn matches_proj_within_a_millimetre() {
-        let p = Tm35finToMercator::new();
-        for (e, n, x, y) in REFERENCE {
-            let (mx, my) = p.to_mercator(e, n);
-            assert!((mx - x).abs() < 1e-3, "x of ({e}, {n}): {mx} vs {x}");
-            assert!((my - y).abs() < 1e-3, "y of ({e}, {n}): {my} vs {y}");
-        }
-    }
-
-    // from pyproj: Transformer.from_crs("EPSG:3006", "EPSG:3857", always_xy=True)
-    const SWEDEN: [(f64, f64, f64, f64); 3] = [
+    const SWEREF99TM: [(f64, f64, f64, f64); 3] = [
         (674032.0, 6580821.0, 2010339.715788, 8252105.501022),
         (890000.0, 7375000.0, 2638348.571816, 9945730.992440),
         (450000.0, 6300000.0, 1578555.370646, 7727714.519710),
     ];
 
+    fn check(crs: &str, points: &[(f64, f64, f64, f64)], tolerance: f64) {
+        let p = Crs::parse(crs).unwrap().projection();
+        for &(e, n, x, y) in points {
+            let (mx, my) = p.to_mercator(e, n);
+            assert!(
+                (mx - x).abs() < tolerance,
+                "{crs} x of ({e}, {n}): {mx} vs {x}"
+            );
+            assert!(
+                (my - y).abs() < tolerance,
+                "{crs} y of ({e}, {n}): {my} vs {y}"
+            );
+        }
+    }
+
     #[test]
-    fn sweref99tm_matches_proj_within_a_millimetre() {
-        let p = Crs::Sweref99Tm.projection();
-        for (e, n, x, y) in SWEDEN {
+    fn the_default_is_tm35fin_and_matches_proj_within_a_millimetre() {
+        assert_eq!(Crs::default(), Crs::parse("tm35fin").unwrap());
+        let p = Crs::default().projection();
+        for (e, n, x, y) in TM35FIN {
             let (mx, my) = p.to_mercator(e, n);
             assert!((mx - x).abs() < 1e-3, "x of ({e}, {n}): {mx} vs {x}");
             assert!((my - y).abs() < 1e-3, "y of ({e}, {n}): {my} vs {y}");
@@ -166,19 +169,120 @@ mod tests {
     }
 
     #[test]
-    fn crs_names_are_parsed() {
-        assert_eq!(Crs::parse("SWEREF99TM"), Some(Crs::Sweref99Tm));
-        assert_eq!(
-            Crs::parse("epsg:3006".replace(':', "").as_str()),
-            Some(Crs::Sweref99Tm)
-        );
-        assert_eq!(Crs::parse("tm35fin"), Some(Crs::Tm35fin));
-        assert_eq!(Crs::parse("wgs84"), None);
+    fn sweref99tm_matches_proj_within_a_millimetre() {
+        check("sweref99tm", &SWEREF99TM, 1e-3);
     }
 
     #[test]
-    fn the_central_meridian_is_27_degrees() {
-        let (lon, _) = Tm35finToMercator::new().to_lon_lat(500_000.0, 6_900_000.0);
-        assert!((lon.to_degrees() - 27.0).abs() < 1e-12);
+    fn any_epsg_code_and_proj_string_works() {
+        // UTM zones on ETRS89 / WGS 84, a southern zone, and a PROJ string of the same CRS as EPSG:32633
+        check(
+            "EPSG:25832",
+            &[
+                (500000.0, 6000000.0, 1001875.417139, 7198255.485510),
+                (380000.0, 5300000.0, 823340.114513, 6080632.391906),
+            ],
+            1e-3,
+        );
+        check(
+            "32633",
+            &[
+                (500000.0, 7000000.0, 1669792.361899, 9132035.784123),
+                (350000.0, 6500000.0, 1382315.397327, 8097500.676365),
+            ],
+            1e-3,
+        );
+        check(
+            "epsg:32735",
+            &[(500000.0, 6000000.0, 3005626.251418, -4320552.674095)],
+            1e-3,
+        );
+        check(
+            "+proj=utm +zone=33 +datum=WGS84 +units=m +no_defs",
+            &[(500000.0, 7000000.0, 1669792.361899, 9132035.784123)],
+            1e-3,
+        );
+        // LAEA Europe (3035), no datum shift
+        check(
+            "EPSG:3035",
+            &[(4321000.0, 3210000.0, 1113194.907933, 6800125.454397)],
+            1e-3,
+        );
+        // national grids on an old datum: the definition's 7 parameters, not the grid files of PROJ (a metre or two)
+        check(
+            "28992",
+            &[
+                (155000.0, 463000.0, 599700.751356, 6828231.372688),
+                (120000.0, 487000.0, 542491.936808, 6867261.547180),
+            ],
+            3.0,
+        );
+        check(
+            "EPSG:27700",
+            &[(530000.0, 180000.0, -14288.295295, 6710932.763392)],
+            6.0,
+        );
+        check(
+            "EPSG:2056",
+            &[(2600000.0, 1200000.0, 828064.773290, 5934093.187678)],
+            3.0,
+        );
+    }
+
+    #[test]
+    fn crs_names_are_parsed() {
+        let sweref = Crs::parse("sweref99tm").unwrap();
+        for name in [
+            "SWEREF99TM",
+            "SWEREF 99 TM",
+            "sweref-99-tm",
+            "3006",
+            "EPSG:3006",
+            "epsg:3006",
+            " 3006 ",
+        ] {
+            assert_eq!(Crs::parse(name), Ok(sweref.clone()), "{name}");
+        }
+        assert_eq!(Crs::parse("ETRS-TM35FIN"), Ok(Crs::default()));
+        assert_eq!(Crs::parse("utm33n").unwrap().definition(), "EPSG:32633");
+        assert_eq!(
+            Crs::parse("WGS84 UTM 35 S").unwrap().definition(),
+            "EPSG:32735"
+        );
+        assert_eq!(
+            Crs::parse("etrs89utm32").unwrap().definition(),
+            "EPSG:25832"
+        );
+        assert_eq!(
+            Crs::parse("+proj=utm +zone=33 +ellps=GRS80 +units=m")
+                .unwrap()
+                .definition(),
+            "+proj=utm +zone=33 +ellps=GRS80 +units=m"
+        );
+    }
+
+    #[test]
+    fn what_is_not_a_projected_crs_is_refused_with_a_reason() {
+        for name in ["wgs84", "4326", "EPSG:4258", "+proj=longlat +datum=WGS84"] {
+            let error = Crs::parse(name).unwrap_err();
+            assert!(error.contains("geographic"), "{name}: {error}");
+        }
+        for name in [
+            "",
+            "nowhere",
+            "utm99n",
+            "etrs89utm45",
+            "EPSG:99999999",
+            "+proj=nonsense",
+        ] {
+            assert!(Crs::parse(name).is_err(), "{name}");
+        }
+        assert!(Crs::parse("moon").unwrap_err().contains("EPSG code"));
+    }
+
+    #[test]
+    fn a_point_the_projection_cannot_handle_is_nan_not_a_panic() {
+        let (x, y) = Crs::default().projection().to_mercator(f64::NAN, 0.0);
+        assert!(x.is_nan() && y.is_nan());
     }
 }

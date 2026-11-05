@@ -12,7 +12,7 @@
 
 use super::features::{PolygonFeature, Props};
 use super::mvt::Value;
-use super::project::Tm35finToMercator;
+use super::project::Projection;
 use super::raster::{self, BACKGROUND, FIRST_GREEN, Mosaic, OPEN};
 use geo::{Area, BooleanOps, Coord, LineString, MultiPolygon, Polygon};
 use rayon::prelude::*;
@@ -338,7 +338,7 @@ impl Collector<'_> {
 pub fn polygons(
     mosaic: &Mosaic,
     params: &Params,
-    projection: &Tm35finToMercator,
+    projection: &Projection,
     threads: usize,
 ) -> Vec<PolygonFeature> {
     let grid = Grid::from_mosaic(mosaic, params);
@@ -631,7 +631,7 @@ mod tests {
             "............",
         ];
         let m = mosaic(&rows, vec![]);
-        let projection = Tm35finToMercator::new();
+        let projection = super::super::project::Crs::default().projection();
         let features = polygons(&m, &no_closing(), &projection, 2);
         let level = |f: &PolygonFeature| match f.props[1].1 {
             Value::Int(l) => l,
@@ -648,7 +648,7 @@ mod tests {
     fn open_areas_and_small_areas() {
         // one open area of 3 x 2 blocks and a single block (9 m2 < 36 m2) that is dropped
         let m = mosaic(&["yyy..", "yyy.y", ".....", "....."], vec![]);
-        let features = polygons(&m, &no_closing(), &Tm35finToMercator::new(), 1);
+        let features = polygons(&m, &no_closing(), &Projection::default(), 1);
         assert_eq!(features.len(), 1);
         assert_eq!(features[0].props[0].1, Value::Str("open".into()));
     }
@@ -659,7 +659,7 @@ mod tests {
         let dry = polygons(
             &mosaic(&rows, vec![]),
             &no_closing(),
-            &Tm35finToMercator::new(),
+            &Projection::default(),
             1,
         );
         let wet = polygons(
@@ -668,7 +668,7 @@ mod tests {
                 (0..3).flat_map(|y| (0..2).map(move |x| (x, y))).collect(),
             ),
             &no_closing(),
-            &Tm35finToMercator::new(),
+            &Projection::default(),
             1,
         );
         let area = |f: &[PolygonFeature]| f.iter().map(|p| p.polygon.unsigned_area()).sum::<f64>();

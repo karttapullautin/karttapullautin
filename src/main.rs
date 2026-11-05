@@ -165,9 +165,11 @@ fn main() {
             .iter()
             .position(|a| a == "--crs")
             .map(|i| {
-                args.get(i + 1)
-                    .and_then(|n| pullauta::vectortiles::project::Crs::parse(n))
-                    .expect("--crs must be tm35fin or sweref99tm")
+                let name = args.get(i + 1).expect("--crs needs a coordinate system");
+                pullauta::vectortiles::project::Crs::parse(name).unwrap_or_else(|e| {
+                    eprintln!("--crs: {e}");
+                    std::process::exit(2)
+                })
             })
             .unwrap_or_default();
         let overview_zoom = args
@@ -192,12 +194,13 @@ fn main() {
         }
         if positional.len() < 2 {
             eprintln!(
-                "USAGE: pullauta vectortiles <folder of pullautin runs> <output folder> [--no-tile-files] [--threads N] [--crs tm35fin|sweref99tm] [--overview-zoom N|none]\n\
+                "USAGE: pullauta vectortiles <folder of pullautin runs> <output folder> [--no-tile-files] [--threads N] [--crs <name>] [--overview-zoom N|none]\n\
                  Every folder of runs that has a temp folder is a sheet: pullautin must have been run with vector_output=1\n\
                  (temp must hold the .dxf.bin files of the layers, vegetation.png, vegetation.pgw and water.txt).\n\
                  Writes map.pmtiles and metadata.json, and the tiles as tiles/z/x/y.pbf unless --no-tile-files is given.\n\
                  --threads N sets the threads of the vegetation polygons (default 2, 0 = all cores, 1 = one thread).\n\
-                 --crs sets the coordinate system of the runs: tm35fin (default, Finland) or sweref99tm (Sweden).\n\
+                 --crs sets the coordinate system of the runs, any projected CRS in metres: an EPSG code (3067, EPSG:25832), a UTM zone (utm33n, etrs89utm32),\n\
+                 tm35fin (default, Finland), sweref99tm (Sweden) or a PROJ string (\"+proj=utm +zone=33 +ellps=GRS80 +units=m\").\n\
                  --overview-zoom N adds a lighter, simplified zoom N below z14 (default 13, none = only z14)."
             );
             return;

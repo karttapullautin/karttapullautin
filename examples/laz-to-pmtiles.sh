@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # From a folder of LAZ/LAS sheets to one PMTiles archive of vector tiles: the whole chain of this fork.
 #
-#   examples/laz-to-pmtiles.sh <folder of .laz/.las files> <output folder> [--crs tm35fin|sweref99tm] [--jobs N] [--scan-year YYYY]
+#   examples/laz-to-pmtiles.sh <folder of .laz/.las files> <output folder> [--crs <name>] [--jobs N] [--scan-year YYYY]
 #
 # 1. every sheet is run through `pullauta` in a folder of its own (<output>/runs/<sheet>), with `vector_output = 1` (no PNG maps) in its pullauta.ini,
 #    N sheets at a time; only the files the tile builder needs are kept of its `temp` folder (the rest is hundreds of MB);
