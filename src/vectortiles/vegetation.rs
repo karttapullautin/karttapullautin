@@ -1,6 +1,6 @@
 //! Vegetation as polygons: yellow open land and nested greens, from the class grid of the vegetation image.
 //!
-//! The steps (the same as proxy-server/mapant-tiles/vegetation_polygons.py):
+//! The steps:
 //!
 //! - the most common class of every 3 m block
 //! - water cells (and the gaps between them) are left out
@@ -233,7 +233,7 @@ impl Grid {
                 water[cy as usize * w + cx as usize] = true;
             }
         }
-        // sea surfaces return water points sparsely: close the gaps between them. The padding is 6 cells like the Python version.
+        // sea surfaces return water points sparsely: close the gaps between them. The padding is 6 cells.
         if params.water_close_cells > 1 {
             water = raster::closing_padded(&water, w, h, params.water_close_cells, 6);
         }
@@ -554,7 +554,7 @@ mod tests {
         ];
         let out = smooth_ring(&ring, 6.0, 1.5);
         assert_eq!(out.len(), 201);
-        // from the Python version (resample + scipy gaussian_filter1d, mode wrap)
+        // a Gaussian filter along the ring (resample, then scipy's gaussian_filter1d with mode wrap as the reference)
         for (i, x, y) in [
             (0, 2.3807682114684785, 2.3807682114684785),
             (1, 3.205572536116718, 1.705572536116718),

@@ -1,4 +1,4 @@
-//! Vector tiles (MVT in a PMTiles archive) straight from pullautin's output, replacing the Python scripts of proxy-server/mapant-tiles.
+//! Vector tiles (MVT in a PMTiles archive) straight from pullautin's output.
 //!
 //! Reads the `.dxf.bin` files of the layers (contours, formlines, cliffs, dot knolls) of every sheet run under one folder, cuts them into
 //! Web Mercator tiles of one zoom level, and writes the tiles as a PMTiles archive (and optionally as `z/x/y.pbf` files).
