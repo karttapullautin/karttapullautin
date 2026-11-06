@@ -29,7 +29,7 @@ rendering (7.4 s + 6.4 s: the map with and the map without depressions). Of the 
 Every fix was preceded by a measurement of where the time really goes. Two initial assumptions turned out to be wrong:
 
 - **PNG decoding was not slow** (50-70 ms per file). What was slow was `resize` of the `image` crate (3.4 s for a 3003 → 7093 px scaling).
-- **Drawing the curves was not slow** (under 0.1 s). I had assumed that stamping every point 25-36 times would be the bottleneck, but the measurement did
+- **Drawing the curves was not slow** (under 0.1 s). It was first assumed that stamping every point 25-36 times would be the bottleneck, but the measurement did
   not support it.
 
 ## Changes
@@ -166,13 +166,13 @@ Parameter: `--threads N` (`BuildOptions::threads`); 0 = all cores, 1 = one threa
 The speed-up stays small (1.44×) because building the grid, naming and reading are single-threaded and one large area dominates the parallel part. The default
 is 2 so that `vectortiles` does not take all cores from other work.
 
-### 9. Any coordinate system: proj4rs (`cc843ed`, rewritten after review)
+### 9. Any coordinate system: proj4rs
 
-The first version had the Krüger series of a GRS80 transverse Mercator zone (TM35FIN 27°, SWEREF 99 TM 15°). The review asked for any CRS, so the projection is now done
+The first version had the Krüger series of a GRS80 transverse Mercator zone (TM35FIN 27°, SWEREF 99 TM 15°). To support any CRS, the projection is now done
 by [proj4rs](https://github.com/3liz/proj4rs) (pure Rust, with the `crs-definitions` EPSG database): `--crs` takes an EPSG code, a UTM zone name, `tm35fin`, `sweref99tm` or
 a PROJ string, and refuses a geographic CRS. The output for TM35FIN is **byte-identical** to the hand-written series (9 sheets, 72 tiles, 2 691 237 bytes), and a little
 faster (4.97 s against 5.47 s). Tests: pyproj reference points for EPSG:3067, 3006, 25832, 32633, 32735, 3035 and a PROJ string to under 1 mm, the national grids on an old
-datum (EPSG:28992, 27700, 2056) to a few metres, and the name parsing and the errors. There are now 106 tests.
+datum (EPSG:28992, 27700, 2056) to a few metres, and the name parsing and the errors.
 
 ### 10. Overview zoom z13
 
@@ -260,13 +260,6 @@ thresholds are tuned for sparse data; an estimate, not tested).
 | `y22a035-63500_4900_25` | Småland | 0.86/m² | 10.3 s, 566 MB | 103 842 |
 | `y26h019-73725_8900_25` | Norrbotten | 1.3/m² | 6.4 s, 455 MB | 4 468 |
 
-**Comparison with Gokartor tiles** (`https://t.gokartor.se/Master/{z}/{y}/{x}.png`, EPSG:3006, resolutions 16384 … 1 … 0.5 m/px at zooms 0…15, origin
-(265000, 7680000), y before x; compared at zoom 15, 640 m squares; Småland and Dalarna):
-- the shape of the contours matches very well; Gokartor draws thicker intermediate contours
-- the cliff locations match (Småland); Gokartor's symbols are thicker
-- our green is clearly more abundant and darker than Gokartor's (the undergrowth thresholds are tuned for MML data; an estimate)
-- we lack roads, streams, water, mires and buildings, because they do not come from the point cloud
-
 ## The whole chain (nine-sheet test area)
 
 Karttapullautin on the nine sheets one after another takes 69 s, and `pullauta vectortiles` **5.3 s** for the same area, so the whole chain is **74 s (8.2 s per sheet)**.
@@ -284,7 +277,7 @@ These do not change karttapullautin but the size of the MVT tiles:
 
 ## Checks and how to repeat them
 
-- `cargo fmt --check`, `cargo clippy --release` (no warnings) and `cargo test --release` (96 tests at the time of section 9; more have been added since) pass.
+- `cargo fmt --check`, `cargo clippy --release` (no warnings) and `cargo test --release` pass.
 - New unit tests: `nearest_view_matches_image_crate` and `nearest_view_uses_only_the_cropped_part` (`src/render.rs`).
 - Comparison: run the original and the new binary on the same LAZ file in different folders and `cmp` `pullautus.png`, `pullautus_depr.png` and all files of
   `temp/`. In the vector mode compare `out2.dxf`, `formlines.dxf`, `c2g.dxf`, `c3g.dxf`, `dotknolls.dxf` and `vegetation.png`.

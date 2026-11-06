@@ -13,7 +13,7 @@ examples/laz-to-pmtiles.sh my-laz-sheets/ out/ --crs tm35fin --scan-year 2020   
 ```
 
 [examples/laz-to-pmtiles.sh](../examples/laz-to-pmtiles.sh) runs the whole chain below: `pullauta` on every sheet in parallel (with `vector_output = 1`),
-then `pullauta vectortiles`. Four 1 km sheets (10 points per m2) take 7 s and 4 s.
+then `pullauta vectortiles`.
 
 ## Pipeline
 
@@ -22,7 +22,7 @@ LAZ/LAS sheets --pullauta (vector_output=1)--> temp/*.dxf.bin, vegetation.png, w
 run folders    --pullauta vectortiles-------> map.pmtiles (+ metadata.json, tiles/z/x/y.pbf)
 ```
 
-1. In `pullauta.ini` set `vector_output = 1` (and `output_dxf = 0`). The run then skips the PNG maps and writes, in `temp/`, the layers as
+1. In `pullauta.ini` set `vector_output = 1` (and `output_dxf = 0`; both are described in the file). The run then skips the PNG maps and writes, in `temp/`, the layers as
    `out2.dxf.bin` (contours), `formlines.dxf.bin`, `c2g.dxf.bin` and `c3g.dxf.bin` (cliffs), `dotknolls.dxf.bin`, the vegetation raster
    `vegetation.png` + `vegetation.pgw` (1 m pixels, indexed PNG) and `water.txt` (the 3 m cells that contain water-class points).
 2. `pullauta vectortiles <run folder> <output folder> [options]`. The **run folder** is where the `temp` folders of the runs are. Any of these layouts works:
@@ -75,8 +75,8 @@ lines or knolls). An application overzooms z14.
 ## PMTiles
 
 PMTiles v3 written directly (Hilbert tile ids, root and leaf directories, gzip); the tile data streams to a temporary file, so memory does not grow with the
-number of tiles. A tile server that serves every `*.pmtiles` of a directory and merges the tiles that two archives share can serve an area built in
-blocks. Tested with the Python `pmtiles` reader, a tile server that serves and merges the archives of a directory, and OpenLayers' MVT format.
+number of tiles. An area built in blocks (see above) can be served by a tile server that serves every `*.pmtiles` of a directory and merges the tiles that two archives share.
+Tested with the Python `pmtiles` reader, such a tile server, and OpenLayers' MVT format.
 
 ## Coordinate systems
 
