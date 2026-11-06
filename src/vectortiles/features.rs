@@ -2,21 +2,22 @@
 
 use super::mvt::Value;
 use super::project::Projection;
-use super::simplify::{douglas_peucker, simplify_ring};
+use super::simplify::simplify_ring;
 use crate::geometry::{BinaryDxf, Classification, Geometry};
+use geo::{Coord, LineString, Point, Simplify};
 use std::path::Path;
 
 pub type Props = Vec<(&'static str, Value)>;
 
 #[derive(Clone, Debug)]
 pub struct LineFeature {
-    pub points: Vec<(f64, f64)>,
+    pub line: LineString<f64>,
     pub props: Props,
 }
 
 #[derive(Clone, Debug)]
 pub struct PointFeature {
-    pub point: (f64, f64),
+    pub point: Point<f64>,
     pub props: Props,
 }
 
@@ -59,9 +60,18 @@ pub fn cliff_size_class(pieces: usize) -> i64 {
 /// A cliff line made of `pieces` pieces
 #[derive(Debug, Clone, PartialEq)]
 pub struct CliffLine {
-    pub points: Vec<(f64, f64)>,
+    pub line: LineString<f64>,
     pub kind: String,
     pub pieces: usize,
+}
+
+/// `points` simplified with Douglas-Peucker (the end points are kept)
+fn simplified(points: &[(f64, f64)], epsilon: f64) -> LineString<f64> {
+    points
+        .iter()
+        .map(|&p| Coord::from(p))
+        .collect::<LineString<f64>>()
+        .simplify(&epsilon)
 }
 
 fn find(parent: &mut [usize], mut i: usize) -> usize {
@@ -84,7 +94,7 @@ fn cliff_lines_of(
     if group.len() == 1 {
         let points = &pieces[group[0]].0;
         out.push(CliffLine {
-            points: douglas_peucker(points, CLIFF_SIMPLIFY_M),
+            line: simplified(points, CLIFF_SIMPLIFY_M),
             kind,
             pieces: 1,
         });
@@ -163,7 +173,7 @@ fn cliff_lines_of(
             .collect();
     }
     out.push(CliffLine {
-        points: douglas_peucker(&line, CLIFF_SIMPLIFY_M),
+        line: simplified(&line, CLIFF_SIMPLIFY_M),
         kind,
         pieces: group.len(),
     });
@@ -277,10 +287,10 @@ fn simplified_ring(line: &geo::LineString<f64>) -> Option<geo::LineString<f64>> 
         .then(|| geo::LineString::from(simplified))
 }
 
-fn line_length(points: &[(f64, f64)]) -> f64 {
-    points
+fn line_length(line: &LineString<f64>) -> f64 {
+    line.0
         .windows(2)
-        .map(|w| (w[1].0 - w[0].0).hypot(w[1].1 - w[0].1))
+        .map(|w| (w[1].x - w[0].x).hypot(w[1].y - w[0].y))
         .sum()
 }
 
@@ -292,9 +302,9 @@ impl Features {
                 .iter()
                 .filter(|f| kind_of(&f.props).is_some_and(|k| kinds.contains(&k)))
                 .filter_map(|f| {
-                    let points = douglas_peucker(&f.points, OVERVIEW_LINE_TOLERANCE_M);
-                    (points.len() >= 2 && line_length(&points) >= min_length).then(|| LineFeature {
-                        points,
+                    let line = f.line.simplify(&OVERVIEW_LINE_TOLERANCE_M);
+                    (line.0.len() >= 2 && line_length(&line) >= min_length).then(|| LineFeature {
+                        line,
                         props: f.props.clone(),
                     })
                 })
@@ -309,7 +319,7 @@ impl Features {
             };
             lines(source, &OVERVIEW_CLIFF_KINDS, 0.0)
                 .into_iter()
-                .filter(|f| clustered(f) || line_length(&f.points) >= OVERVIEW_MIN_CLIFF_M)
+                .filter(|f| clustered(f) || line_length(&f.line) >= OVERVIEW_MIN_CLIFF_M)
                 .collect()
         };
         let vegetation = self
@@ -340,10 +350,9 @@ impl Features {
 
     /// Adds the layers of one sheet: `temp` is the `temp` folder of its pullautin run.
     pub fn add_sheet(&mut self, temp: &Path, projection: &Projection) -> anyhow::Result<()> {
-        let project = |points: &[(f64, f64)]| -> Vec<(f64, f64)> {
-            points
-                .iter()
-                .map(|&(x, y)| projection.to_mercator(x, y))
+        let project = |line: &LineString<f64>| -> LineString<f64> {
+            line.coords()
+                .map(|c| Coord::from(projection.to_mercator(c.x, c.y)))
                 .collect()
         };
         let read = |name: &str| -> anyhow::Result<Option<Geometry>> {
@@ -364,13 +373,14 @@ impl Features {
                 if points.len() < 2 {
                     continue;
                 }
-                let raw: Vec<_> = points.iter().map(|p| (p.x, p.y)).collect();
-                let simplified = douglas_peucker(&raw, LINE_SIMPLIFY_M);
-                if simplified.len() < 2 || line_length(&simplified) < 1.0 {
+                let raw: LineString<f64> =
+                    points.iter().map(|p| Coord { x: p.x, y: p.y }).collect();
+                let simplified = raw.simplify(&LINE_SIMPLIFY_M);
+                if simplified.0.len() < 2 || line_length(&simplified) < 1.0 {
                     continue;
                 }
                 self.contour.push(LineFeature {
-                    points: project(&simplified),
+                    line: project(&simplified),
                     props: vec![
                         ("kind", Value::Str(contour_kind(*class))),
                         ("ele", Value::Double((height * 10.0).round() / 10.0)),
@@ -384,13 +394,14 @@ impl Features {
                 if points.len() < 2 {
                     continue;
                 }
-                let raw: Vec<_> = points.iter().map(|p| (p.x, p.y)).collect();
-                let simplified = douglas_peucker(&raw, LINE_SIMPLIFY_M);
-                if simplified.len() < 2 || line_length(&simplified) < 1.0 {
+                let raw: LineString<f64> =
+                    points.iter().map(|p| Coord { x: p.x, y: p.y }).collect();
+                let simplified = raw.simplify(&LINE_SIMPLIFY_M);
+                if simplified.0.len() < 2 || line_length(&simplified) < 1.0 {
                     continue;
                 }
                 self.formline.push(LineFeature {
-                    points: project(&simplified),
+                    line: project(&simplified),
                     props: Vec::new(),
                 });
             }
@@ -409,11 +420,11 @@ impl Features {
             }
         }
         for line in cluster_cliffs(cliff_pieces, CLIFF_CLUSTER_GAP_M, CLIFF_MAX_LINE_M) {
-            if line.points.len() < 2 {
+            if line.line.0.len() < 2 {
                 continue;
             }
             self.cliff.push(LineFeature {
-                points: project(&line.points),
+                line: project(&line.line),
                 props: vec![
                     ("kind", Value::Str(line.kind)),
                     ("size", Value::Int(cliff_size_class(line.pieces))),
@@ -424,7 +435,7 @@ impl Features {
         if let Some(Geometry::Points(points)) = read("dotknolls")? {
             for (p, class) in points.iter() {
                 self.knoll.push(PointFeature {
-                    point: projection.to_mercator(p.x, p.y),
+                    point: Point::from(projection.to_mercator(p.x, p.y)),
                     props: vec![("kind", Value::Str(class.to_layer().to_string()))],
                 });
             }
@@ -439,7 +450,7 @@ mod overview_tests {
 
     fn line(kind: &str, length: f64) -> LineFeature {
         LineFeature {
-            points: vec![(0.0, 0.0), (length / 2.0, 0.5), (length, 0.0)],
+            line: LineString::from(vec![(0.0, 0.0), (length / 2.0, 0.5), (length, 0.0)]),
             props: vec![("kind", Value::Str(kind.to_string()))],
         }
     }
@@ -475,7 +486,7 @@ mod overview_tests {
                 line("cliff2", 20.0),
             ],
             knoll: vec![PointFeature {
-                point: (1.0, 1.0),
+                point: Point::new(1.0, 1.0),
                 props: vec![],
             }],
             ..Default::default()
@@ -490,7 +501,7 @@ mod overview_tests {
         assert!(o.formline.is_empty() && o.knoll.is_empty());
         assert_eq!(kinds(&o.cliff), ["cliff2", "cliff3"]);
         // the nearly straight line has lost its middle vertex
-        assert_eq!(o.contour[0].points.len(), 2);
+        assert_eq!(o.contour[0].line.0.len(), 2);
     }
 
     #[test]
@@ -565,12 +576,12 @@ mod cluster_tests {
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].pieces, 8);
         assert!(
-            lines[0].points.len() <= 4,
+            lines[0].line.0.len() <= 4,
             "{} points",
-            lines[0].points.len()
+            lines[0].line.0.len()
         );
         // straight: every point within the tolerance of the axis
-        assert!(lines[0].points.iter().all(|p| p.1.abs() < 1.6));
+        assert!(lines[0].line.coords().all(|p| p.y.abs() < 1.6));
         assert_eq!(cliff_size_class(lines[0].pieces), 3);
     }
 
@@ -586,7 +597,7 @@ mod cluster_tests {
             40.0,
         );
         assert_eq!(lines.len(), 3);
-        assert!(lines.iter().all(|l| l.pieces == 1 && l.points.len() == 2));
+        assert!(lines.iter().all(|l| l.pieces == 1 && l.line.0.len() == 2));
         assert_eq!(cliff_size_class(1), 1);
         assert_eq!(cliff_size_class(2), 2);
         assert_eq!(cliff_size_class(5), 2);
@@ -602,8 +613,8 @@ mod cluster_tests {
         let lines = cluster_cliffs(pieces, 3.0, 40.0);
         assert!(lines.len() >= 4, "{} lines", lines.len());
         let length = |l: &CliffLine| {
-            let (a, b) = (l.points[0], l.points[l.points.len() - 1]);
-            (b.0 - a.0).hypot(b.1 - a.1)
+            let (a, b) = (l.line.0[0], l.line.0[l.line.0.len() - 1]);
+            (b.x - a.x).hypot(b.y - a.y)
         };
         assert!(
             lines.iter().all(|l| length(l) <= 45.0),

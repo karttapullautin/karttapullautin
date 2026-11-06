@@ -155,24 +155,36 @@ pub fn index_tiles(features: &Features, zoom: u8) -> Vec<(u64, u32, u32, TileRef
     }
 
     for (i, f) in features.contour.iter().enumerate() {
-        add(&mut tiles, zoom, bounds_of(f.points.iter().copied()), |t| {
-            t.contour.push(i as u32)
-        });
+        add(
+            &mut tiles,
+            zoom,
+            bounds_of(f.line.coords().map(|c| (c.x, c.y))),
+            |t| t.contour.push(i as u32),
+        );
     }
     for (i, f) in features.formline.iter().enumerate() {
-        add(&mut tiles, zoom, bounds_of(f.points.iter().copied()), |t| {
-            t.formline.push(i as u32)
-        });
+        add(
+            &mut tiles,
+            zoom,
+            bounds_of(f.line.coords().map(|c| (c.x, c.y))),
+            |t| t.formline.push(i as u32),
+        );
     }
     for (i, f) in features.cliff.iter().enumerate() {
-        add(&mut tiles, zoom, bounds_of(f.points.iter().copied()), |t| {
-            t.cliff.push(i as u32)
-        });
+        add(
+            &mut tiles,
+            zoom,
+            bounds_of(f.line.coords().map(|c| (c.x, c.y))),
+            |t| t.cliff.push(i as u32),
+        );
     }
     for (i, f) in features.knoll.iter().enumerate() {
-        add(&mut tiles, zoom, bounds_of(std::iter::once(f.point)), |t| {
-            t.knoll.push(i as u32)
-        });
+        add(
+            &mut tiles,
+            zoom,
+            bounds_of(std::iter::once(f.point.x_y())),
+            |t| t.knoll.push(i as u32),
+        );
     }
     for (i, f) in features.vegetation.iter().enumerate() {
         add(
@@ -231,11 +243,11 @@ fn clip_segment(a: (f64, f64), b: (f64, f64), r: &Rect) -> Option<(f64, f64)> {
 }
 
 /// The pieces of a line inside the rectangle
-fn clip_line(points: &[(f64, f64)], r: &Rect) -> Vec<Vec<(f64, f64)>> {
+fn clip_line(points: &[Coord<f64>], r: &Rect) -> Vec<Vec<(f64, f64)>> {
     let mut pieces = Vec::new();
     let mut current: Vec<(f64, f64)> = Vec::new();
     for w in points.windows(2) {
-        let (a, b) = (w[0], w[1]);
+        let (a, b) = ((w[0].x, w[0].y), (w[1].x, w[1].y));
         match clip_segment(a, b, r) {
             None => {
                 if current.len() >= 2 {
@@ -339,7 +351,7 @@ impl TileBuilder<'_> {
         let lines = |layer: &mut Layer, source: &[LineFeature], ids: &[u32]| {
             for &i in ids {
                 let f = &source[i as usize];
-                for piece in clip_line(&f.points, &clip_rect) {
+                for piece in clip_line(&f.line.0, &clip_rect) {
                     let points = dedupe(
                         piece
                             .iter()
@@ -362,7 +374,7 @@ impl TileBuilder<'_> {
         let points = |layer: &mut Layer, source: &[PointFeature], ids: &[u32]| {
             for &i in ids {
                 let f = &source[i as usize];
-                let (x, y) = f.point;
+                let (x, y) = f.point.x_y();
                 if x >= tile.minx && x < tile.maxx && y >= tile.miny && y < tile.maxy {
                     layer.add(&mvt::Feature {
                         geometry: mvt::Geometry::Point(quantize(x, y, &tile, size)),
@@ -430,18 +442,20 @@ mod tests {
             maxy: 10.0,
         };
         // enters, leaves, comes back
-        let line = [
+        let line: Vec<Coord<f64>> = [
             (-5.0, 5.0),
             (5.0, 5.0),
             (15.0, 5.0),
             (15.0, 8.0),
             (5.0, 8.0),
-        ];
+        ]
+        .map(Coord::from)
+        .to_vec();
         let pieces = clip_line(&line, &r);
         assert_eq!(pieces.len(), 2);
         assert_eq!(pieces[0], vec![(0.0, 5.0), (5.0, 5.0), (10.0, 5.0)]);
         assert_eq!(pieces[1], vec![(10.0, 8.0), (5.0, 8.0)]);
-        assert!(clip_line(&[(20.0, 20.0), (30.0, 30.0)], &r).is_empty());
+        assert!(clip_line(&[(20.0, 20.0).into(), (30.0, 30.0).into()], &r).is_empty());
     }
 
     #[test]

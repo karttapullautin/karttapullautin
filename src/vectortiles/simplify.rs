@@ -1,4 +1,4 @@
-//! Douglas-Peucker simplification (no topology preservation), like GEOS `simplify(tolerance, preserve_topology=False)`.
+//! Ring simplification with the rule of GEOS `simplify(tolerance, preserve_topology=True)`. Lines are simplified with `geo::Simplify` (Douglas-Peucker).
 
 fn point_segment_distance(p: (f64, f64), a: (f64, f64), b: (f64, f64)) -> f64 {
     let (dx, dy) = (b.0 - a.0, b.1 - a.1);
@@ -8,41 +8,6 @@ fn point_segment_distance(p: (f64, f64), a: (f64, f64), b: (f64, f64)) -> f64 {
     }
     let t = (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / len2).clamp(0.0, 1.0);
     (p.0 - (a.0 + t * dx)).hypot(p.1 - (a.1 + t * dy))
-}
-
-/// The end points are always kept.
-pub fn douglas_peucker(points: &[(f64, f64)], epsilon: f64) -> Vec<(f64, f64)> {
-    if points.len() < 3 {
-        return points.to_vec();
-    }
-    let mut keep = vec![false; points.len()];
-    keep[0] = true;
-    keep[points.len() - 1] = true;
-    let mut stack = vec![(0usize, points.len() - 1)];
-    while let Some((first, last)) = stack.pop() {
-        if last <= first + 1 {
-            continue;
-        }
-        let (mut max_d, mut index) = (-1.0, first);
-        for i in first + 1..last {
-            let d = point_segment_distance(points[i], points[first], points[last]);
-            if d > max_d {
-                max_d = d;
-                index = i;
-            }
-        }
-        if max_d > epsilon {
-            keep[index] = true;
-            stack.push((first, index));
-            stack.push((index, last));
-        }
-    }
-    points
-        .iter()
-        .zip(&keep)
-        .filter(|(_, k)| **k)
-        .map(|(p, _)| *p)
-        .collect()
 }
 
 /// A closed ring simplified like GEOS `simplify(tolerance, preserve_topology=True)` (JTS `TaggedLineStringSimplifier`) does a ring: Douglas-Peucker
@@ -112,17 +77,27 @@ pub fn simplify_ring(ring: &[(f64, f64)], tolerance: f64) -> Vec<(f64, f64)> {
 mod tests {
     use super::*;
 
+    // the lines are simplified with geo::Simplify: this pins down the behaviour the tiles rely on
+    fn dp(points: &[(f64, f64)], epsilon: f64) -> Vec<(f64, f64)> {
+        use geo::Simplify;
+        geo::LineString::from(points.to_vec())
+            .simplify(&epsilon)
+            .coords()
+            .map(|c| (c.x, c.y))
+            .collect()
+    }
+
     #[test]
     fn drops_the_points_within_epsilon_and_keeps_the_corners_and_the_ends() {
         let noisy = [(0.0, 0.0), (1.0, 0.05), (2.0, 0.0), (3.0, 0.05), (4.0, 0.0)];
-        assert_eq!(douglas_peucker(&noisy, 0.1), vec![(0.0, 0.0), (4.0, 0.0)]);
-        assert_eq!(douglas_peucker(&noisy, 0.01).len(), 5);
+        assert_eq!(dp(&noisy, 0.1), vec![(0.0, 0.0), (4.0, 0.0)]);
+        assert_eq!(dp(&noisy, 0.01).len(), 5);
         let corner = [(0.0, 0.0), (5.0, 0.0), (5.0, 5.0)];
-        assert_eq!(douglas_peucker(&corner, 0.1), corner.to_vec());
+        assert_eq!(dp(&corner, 0.1), corner.to_vec());
         // a long gentle bend: the middle point is 0.5 from the chord
         let bend = [(0.0, 0.0), (5.0, 0.5), (10.0, 0.0)];
-        assert_eq!(douglas_peucker(&bend, 0.4).len(), 3);
-        assert_eq!(douglas_peucker(&bend, 0.6).len(), 2);
+        assert_eq!(dp(&bend, 0.4).len(), 3);
+        assert_eq!(dp(&bend, 0.6).len(), 2);
     }
 
     #[test]
@@ -162,6 +137,6 @@ mod tests {
 
     #[test]
     fn short_lines_are_returned_as_they_are() {
-        assert_eq!(douglas_peucker(&[(0.0, 0.0), (1.0, 1.0)], 5.0).len(), 2);
+        assert_eq!(dp(&[(0.0, 0.0), (1.0, 1.0)], 5.0).len(), 2);
     }
 }

@@ -41,8 +41,8 @@ DXF/bin outputs 0.16 s. There is no parallelism inside a sheet except the option
 ## Vector tiles: `pullauta vectortiles`
 
 The command reads the `temp` folders of runs made with `vector_output = 1` and writes `map.pmtiles` ([vectortiles.md](vectortiles.md)). Modules in `src/vectortiles/`: `project.rs`
-(any projected CRS to Web Mercator through `proj4rs`), `features.rs` and `simplify.rs` (the layers, Douglas–Peucker, JTS-style ring simplification), `raster.rs` (mosaic, block majority,
-morphology, connected areas, contour tracing), `vegetation.rs`, `tiler.rs` (tile split, Liang–Barsky line clipping, polygon clipping with `geo`), `mvt.rs` (hand-written protobuf) and `pmtiles.rs`
+(any projected CRS to Web Mercator through `proj4rs`), `features.rs` (the layers as `geo::LineString` / `geo::Point` / `geo::Polygon`, lines simplified with `geo::Simplify`) and `simplify.rs` (JTS-style ring simplification, which `geo` has no equivalent of), `raster.rs` (mosaic, block majority,
+morphology, connected areas, contour tracing), `vegetation.rs`, `tiler.rs` (tile split, Liang–Barsky line clipping, which is 30× faster than `geo`'s `BooleanOps::clip` on this data, polygon clipping with `geo`), `mvt.rs` (hand-written protobuf) and `pmtiles.rs`
 (PMTiles v3, tile data streamed to a temporary file). The module is excluded from wasm builds. Nine sheets take 5.3 s and 313 MB; the whole chain (pullauta on nine sheets 69 s, then the tiles) 74 s.
 
 - **Threads.** The vegetation polygons run in a `rayon` pool in three phases (tracing/smoothing/union per area, clipping to the parent by nesting depth, simplification and projection), collected in
