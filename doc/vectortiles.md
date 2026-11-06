@@ -1,9 +1,9 @@
 # Vector tiles from karttapullautin: `pullauta vectortiles`
 
-This fork can turn the output of Karttapullautin straight into **vector tiles** (MVT in a PMTiles archive) for web maps, with no intermediate
-GeoJSON or Python step. Contours, form lines, cliffs, knolls and the vegetation (as polygons) of many sheets become one `map.pmtiles`.
+Karttapullautin can turn its output straight into **vector tiles** (MVT in a PMTiles archive) for web maps, with no intermediate
+GeoJSON step. Contours, form lines, cliffs, knolls and the vegetation (as polygons) of many sheets become one `map.pmtiles`.
 Measured on an 8-core workstation: nine 3 x 3 km sheets (81 km2) take **5 s and 313 MB** to tile, after the sheets themselves
-(about 7 s and 300 MB each, 8 M points). Details and measurements of every optimisation: [optimizations.md](optimizations.md) (in Finnish).
+(about 7 s and 300 MB each, 8 M points). Details and measurements of every optimisation: [optimizations.md](optimizations.md).
 
 ## Quick start
 
@@ -13,8 +13,7 @@ examples/laz-to-pmtiles.sh my-laz-sheets/ out/ --crs tm35fin --scan-year 2020   
 ```
 
 [examples/laz-to-pmtiles.sh](../examples/laz-to-pmtiles.sh) runs the whole chain below: `pullauta` on every sheet in parallel (with `vector_output = 1`),
-then `pullauta vectortiles`. Four 1 km sheets (10 points per m2) take 7 s and 4 s. [examples/sweden](../examples/sweden) has the scripts for fetching
-Lantmäteriet's open laser data and building a large area in blocks.
+then `pullauta vectortiles`. Four 1 km sheets (10 points per m2) take 7 s and 4 s.
 
 ## Pipeline
 
@@ -77,7 +76,7 @@ lines or knolls). An application overzooms z14.
 
 PMTiles v3 written directly (Hilbert tile ids, root and leaf directories, gzip); the tile data streams to a temporary file, so memory does not grow with the
 number of tiles. A tile server that serves every `*.pmtiles` of a directory and merges the tiles that two archives share can serve an area built in
-blocks. Tested with `osm-mapsforge serve` of the Karttahimmeli proxy-server and with the Python `pmtiles` reader and OpenLayers' MVT format.
+blocks. Tested with the Python `pmtiles` reader, a tile server that serves and merges the archives of a directory, and OpenLayers' MVT format.
 
 ## Coordinate systems
 
@@ -98,5 +97,5 @@ For a CRS with a datum that needs a grid, give a PROJ string with the best `+tow
 
 ## Tests
 
-`cargo test --release` (104 tests): the projection against pyproj (1 mm), the MVT and PMTiles encoders (round trips, large archives), vegetation rules, cliff
-clusters, scan years. The Python scripts these replace, and a check of the Rust output against them, are described in `optimizations.md`.
+`cargo test --release`: the projection against pyproj (1 mm), the MVT and PMTiles encoders (round trips, large archives), vegetation rules, cliff
+clusters, scan years, the run folder layouts. The measurements of the whole pipeline are in [optimizations.md](optimizations.md).

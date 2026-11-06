@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# From a folder of LAZ/LAS sheets to one PMTiles archive of vector tiles: the whole chain of this fork.
+# From a folder of LAZ/LAS sheets to one PMTiles archive of vector tiles: pullauta on every sheet, then pullauta vectortiles.
 #
 #   examples/laz-to-pmtiles.sh <folder of .laz/.las files> <output folder> [--crs <name>] [--jobs N] [--scan-year YYYY]
 #

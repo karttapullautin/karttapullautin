@@ -1,15 +1,3 @@
-> **This is a fork** of [karttapullautin/karttapullautin](https://github.com/karttapullautin/karttapullautin) with a faster render and a new command,
-> `pullauta vectortiles`, that turns the output into **vector tiles (MVT in a PMTiles archive)** for web maps. What is different:
->
-> - **Faster and lighter.** An 8 M point sheet takes 6.0 s instead of 24.2 s (in `vector_output` mode, 9.9 s with the maps) and 315 MB instead of 466 MB: one render for the map with depressions
->   (`render_nodepressions`), rows read as they are drawn, no all-pairs loops in the knoll detection, the contours of a level only visit their own cells.
->   Output is byte-identical to the original where nothing is meant to change. Measurements: [doc/optimizations.md](doc/optimizations.md) (in Finnish).
-> - **`vector_output = 1`** in `pullauta.ini`: no PNG maps, the layers as `.dxf.bin` and the water cells, for the tile builder.
-> - **`pullauta vectortiles`**: contours, form lines, cliffs, knolls and vegetation polygons of many sheets into `map.pmtiles`, z14 and a lighter z13,
->   ETRS-TM35FIN or SWEREF 99 TM, parallel vegetation, the laser scanning years in every tile. See [doc/vectortiles.md](doc/vectortiles.md).
->
-> Branches: `render-optimization` (the render and knoll optimisations, `vector_output`) and `vectortiles-rust` (everything above, on top of it).
-
 # ***Karttapullautin***
 ## What is this?
 
@@ -152,6 +140,24 @@ They are:
   - `xyzfixer`
 
 If you need to run one of those, you must use the original perl script https://www.routegadget.net/karttapullautin/ or https://github.com/linville/kartta-pack for mac and linux
+
+
+## Vector tiles (MVT / PMTiles)
+
+***pullauta*** can also turn its output into **vector tiles** for web maps, without GeoJSON or any other intermediate step: contours, form lines, cliffs, knolls and
+the vegetation (as polygons) of many sheets become one [PMTiles](https://github.com/protomaps/PMTiles) archive of Mapbox Vector Tiles (z14 and a lighter z13 overview).
+
+1. In `pullauta.ini` set `vector_output = 1` (and `output_dxf = 0`): the PNG maps are skipped, and the layers (`.dxf.bin`), the vegetation raster and the water cells are written to the `temp` folder.
+2. Run ***pullauta*** on every sheet, each in its own folder (or in batch mode with `savetempfolders = 1`).
+3. Build the tiles from the folder of runs:
+
+       ./pullauta vectortiles <run folder> <output folder> [--crs <name>] [--threads N] [--no-tile-files] [--overview-zoom N|none]
+
+   `<run folder>` is a folder with one sub-folder per sheet (each with its `temp` folder), the `temp_<name>_dir` folders that batch mode saves with `savetempfolders = 1`, or a single run.
+   `--crs` is the coordinate system of the laser data, any projected CRS in metres: an EPSG code (`3067`, `EPSG:25832`), a UTM zone (`utm33n`), or a PROJ string; the default is ETRS-TM35FIN (`tm35fin`).
+
+The result is `map.pmtiles` and `metadata.json` (and `tiles/z/x/y.pbf` unless `--no-tile-files`). [examples/laz-to-pmtiles.sh](examples/laz-to-pmtiles.sh) runs the whole chain for a folder of LAZ files.
+See [doc/vectortiles.md](doc/vectortiles.md) for the tile layers, the options, the coordinate systems and the measurements, and [doc/optimizations.md](doc/optimizations.md) for how the processing was sped up.
 
 ## Compiling ***pullauta*** from source code
 

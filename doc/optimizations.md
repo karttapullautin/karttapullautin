@@ -1,6 +1,6 @@
 # Optimisations: rendering, knolls and vector tile production
 
-This document describes the changes of the `render-optimization` and `vectortiles-rust` branches and their measurements. The aim was that processing one
+This document describes the performance changes of the rendering, the knoll detection and the contours, and of the vector tile builder (`pullauta vectortiles`), and their measurements. The aim was that processing one
 3 × 3 km sheet takes less time and memory, and that vector data (MVT tiles) is produced without unnecessary intermediate steps. All numbers were measured
 on the same workstation (8 cores) with MML (Finnish National Land Survey) laser scanning data from the Funet mirror, unless stated otherwise.
 **Estimates are marked as estimates.**
@@ -13,14 +13,12 @@ on the same workstation (8 cores) with MML (Finnish National Land Survey) laser 
 | Smaller sheet (`K3414B1`, 4.3 M points), karttapullautin | 22.8 s, 1.40 GB | 11.1 s, 0.45 GB |
 | Peak memory, large sheet | 466 MB | 315 MB (`vector_output`) |
 | Water cells for vector production | 9.2 s | 0.16 s |
-| Vegetation vectorisation and MVT build, nine sheets | 77 s (Python), about 3 GB | 5.3 s (Rust), 313 MB |
-| Whole chain for nine sheets (karttapullautin → MVT) | about 365 s (estimate) | 150 s (Python) / **74 s (Rust)** |
+| Vegetation vectorisation and MVT build, nine sheets | - | 5.3 s, 313 MB |
+| Whole chain for nine sheets (karttapullautin → MVT) | - | **74 s** |
 | Large sheet (`M4122F4`, 8.2 M points), karttapullautin, `vector_output` | 7.26 s | 6.0 s (section 7) |
 | `vectortiles`, nine sheets | 5.4 s (1 thread) | 4.3 s (2 threads), 3.8 s (all 8 cores) (section 8) |
 
-The outputs of karttapullautin are **byte-identical** to the original binary: both PNG maps, all temporary files, and the 72 MVT tiles of the nine-sheet
-test area made with the Python pipeline (PMTiles 2 382 581 bytes). The Rust version of the MVT tiles (section 6) is exactly the same for lines and
-points and nearly the same (under 0.2 % of the area) for vegetation, but not byte-identical.
+The outputs of karttapullautin are **byte-identical** to the original binary: both PNG maps and all temporary files.
 
 ## Measuring basis
 
@@ -36,7 +34,7 @@ Every fix was preceded by a measurement of where the time really goes. Two initi
 
 ## Changes
 
-### 1. Rendering is shared by the two maps (`60d5f5a`)
+### 1. Rendering is shared by the two maps
 
 Karttapullautin writes two PNG maps (with and without depressions). Each call decoded and scaled the same layers and computed the slope of the height
 field from scratch. Now:
@@ -49,7 +47,7 @@ field from scratch. Now:
 
 Result (`K3414B1`): 22.8 s → 19.7 s, 1.40 GB → 1.07 GB. With `render_nodepressions=0`: 16.4 s and 875 MB.
 
-### 2. Nearest-neighbour scaling without the f32 intermediate (`60d5f5a`)
+### 2. Nearest-neighbour scaling without the f32 intermediate
 
 `image::imageops::resize` uses an f32 intermediate image (`Rgba32F`) whatever the filter. For 3003² → 7093² it allocated about 340 MB extra and took
 3.4 s. With the nearest filter every output pixel is one source pixel with weight 1, so the value stays an integer. The replacement computes the source
@@ -58,7 +56,7 @@ several sizes and for a cropped source area.
 
 Result: 19.7 s → 11.0 s, 1.07 GB → 0.70 GB. Base layers 3.8 s → 0.96 s and overlaid layers 3.0 s → 0.3 s per map.
 
-### 3. Layers straight onto the canvas (`e5311fe`)
+### 3. Layers straight onto the canvas
 
 - `NearestView` (implements `GenericImageView`) reads the source pixels only when they are drawn, so no scaled copies are made.
   `image::imageops::overlay` uses it as it is, so the blending is exactly the same.
@@ -69,7 +67,7 @@ Result: 19.7 s → 11.0 s, 1.07 GB → 0.70 GB. Base layers 3.8 s → 0.96 s and
 Result: 703 MB → 452 MB, with the total time staying at 11 s. Other sheets (old → new): `L3313A4` 17.3 → 5.3 s and 1.37 → 0.45 GB, `R4233C4` 15.9 → 4.8 s
 and 1.34 → 0.44 GB, `V4133E4` 28.7 → 18.1 s and 1.42 → 0.51 GB.
 
-### 4. Knoll detection: no more all-pairs loops (`71617b9`)
+### 4. Knoll detection: no more all-pairs loops
 
 On the large sheet the knoll detection took 14.6 s. The added `Timing` sections (`knolldetector`) located two loops (`bounding boxes and tops` 6.5 s and
 `candidates` 8.1 s) in which every line was compared with every point and the height was looked up twice from a hash map. The other parts take under 0.3 s
@@ -81,7 +79,7 @@ together.
 
 Result: both loops take about 20 ms. Large sheet 24.2 s → 9.9 s. All temp files and PNGs byte-identical.
 
-### 5. The `vector_output` mode (`1ad340b`)
+### 5. The `vector_output` mode
 
 Vector data needs neither the PNG maps nor all the text DXF files. The ini setting `vector_output = 1` (use it with `output_dxf=0`):
 
@@ -93,42 +91,26 @@ Vector data needs neither the PNG maps nor all the text DXF files. The ini setti
 
 Result (large sheet): 9.9 s → 8.0 s, 466 MB → 315 MB. The five DXF files and `vegetation.png` are byte-identical to the normal run.
 
-### 6. Python steps moved to Rust: `pullauta vectortiles` (branch `vectortiles-rust`)
+### 6. The vector tile builder: `pullauta vectortiles`
 
-The command `pullauta vectortiles <run folder> <output> [--no-tile-files] [--threads N] [--crs tm35fin|sweref99tm]` replaces the earlier Python scripts
-(`stitch_veg.py`, `vegetation_polygons.py`, `build_mvt.py`, `dxfparse.py`). It reads the `temp` folders of karttapullautin runs (made with `vector_output=1`):
-the `.dxf.bin` files of the layers, `vegetation.png` (an indexed PNG: the palette index is the class directly), `vegetation.pgw` and `water.txt`. The result is
-`map.pmtiles`, `metadata.json` and optionally `tiles/z/x/y.pbf`.
+The command `pullauta vectortiles <run folder> <output> [--no-tile-files] [--threads N] [--crs <name>]` reads the `temp` folders of karttapullautin runs (made with
+`vector_output=1`): the `.dxf.bin` files of the layers, `vegetation.png` (an indexed PNG: the palette index is the class directly), `vegetation.pgw` and `water.txt`.
+The result is `map.pmtiles`, `metadata.json` and optionally `tiles/z/x/y.pbf` (see [vectortiles.md](vectortiles.md)).
 
-Modules (`src/vectortiles/`): `project.rs` (TM35FIN → Web Mercator, Krüger series; tested against proj values to under 1 mm), `features.rs` and
+Modules (`src/vectortiles/`): `project.rs` (any projected CRS to Web Mercator through `proj4rs`), `features.rs` and
 `simplify.rs` (reading the layers, Douglas–Peucker for lines, JTS-style ring simplification), `raster.rs` (mosaic, block majority, morphology,
 connected-area detection, contour tracing), `vegetation.rs`, `tiler.rs` (tile split, line clipping with Liang–Barsky, polygon clipping with the `geo`
 crate), `mvt.rs` (hand-written protobuf) and `pmtiles.rs` (PMTiles v3: Hilbert ids, leaf directories, tile data streamed to a temporary file). New dependencies:
-`geo` (only boolean operations and area) and `flate2` (gzip). The module is excluded from wasm builds.
+`geo` (only boolean operations and area), `flate2` (gzip), `proj4rs` and `rayon`. The module is excluded from wasm builds.
 
-| Nine-sheet test area | Python | Rust |
-|---|---|---|
-| stitching + vegetation + MVT | 4 + 53 + 24 = 81 s | 5.3 s (vegetation 3.6 s) |
-| peak memory | about 3 GB (mosaic) | 313 MB |
+Nine 3 x 3 km sheets (81 km2) are tiled in **5.3 s** (vegetation 3.6 s) with a peak memory of 313 MB.
 
-Accuracy (Rust compared with the Python tiles, 72 tiles):
+Verification: the projection against pyproj (under 1 mm); the tile ids against a reference; the MVT round trip; a PMTiles reader (the Python `pmtiles` package) reads the header and
+all 72 tiles of the test area, and OpenLayers' MVT reader parses all features; PMTiles writing with leaf directories; closing and smoothing against scipy; the nesting rule of the vegetation.
+Vegetation ring simplification follows the rule of GEOS `preserve_topology=True` (the first parts of a ring are split to depth 3 so that it keeps at least four points)
+but without the intersection checks of JTS, so a polygon can differ slightly from a GEOS result.
 
-| Layer | Result |
-|---|---|
-| contours, form lines, cliffs, knolls | identical: feature count, point count, length and knoll coordinates match in all tiles |
-| vegetation, areas per level | exactly the same (19 815 / 2 081 / 10 052 / 3 250 / 3 316 / 402 / 111 green areas on levels 1-7) |
-| vegetation, smoothed polygons | match Python element by element (98.5 % under 1e-6) |
-| vegetation, final polygons | 25 138 vs 25 130 polygons; total area −0.18 %; points +0.8 %; worst tile 1.7 % |
-
-Simplification explains the remaining differences: GEOS `preserve_topology=True` is not plain Douglas–Peucker. It forces the first parts of a ring to be split
-to depth 3 so that the ring keeps at least four points, and small areas therefore shrink less (area of small polygons 0.53 vs 0.46 of the original). Rust
-implements the same rule (`simplify_ring`) but without JTS's intersection checks, and the ring start point differs, so single polygons are not identical.
-Holes: 4 212 vs 4 658 (I did not find out why). Python's GeoJSON rounded coordinates to 0.1 m; Rust does not.
-
-Verification: Python's `pmtiles` reader reads the header and all 72 tiles (they match what was written), OpenLayers' MVT reader parses all features, and 24 new
-unit tests (projection vs pyproj, tile ids vs a reference, MVT round trip, PMTiles writing with leaf directories, closing and smoothing vs scipy, the nesting rule).
-
-### 7. Contours: visit only the cells a level crosses (`4b7a12f`)
+### 7. Contours: visit only the cells a level crosses
 
 Profiling (`Timing` sections, 8.2 M point sheet, 6.0 s) showed that `knoll detection part 1` (2.43 s) is in practice one call: `heightmap2contours` with a
 0.3 m interval (2.6 s; `xyz2heightmap` takes only 0.18 s). `grid2contours` scanned the whole grid of 2.25 M cells for every contour level (208 of them),
@@ -163,7 +145,7 @@ not implemented). Possible follow-ups are running the levels in parallel and rep
 There is no parallelism except in two settings: `processes` (sheets in parallel, needs `batch=1`) and `parallel_laz_decompression`. Inside one sheet the steps are
 single-threaded (`vector_output` skips the PNG rendering, where the `image` crate's rayon was the only parallelism), so one sheet uses about 1.5 of 8 cores.
 
-### 8. Vegetation polygons on several threads: `--threads` (`6a03af6`, `4437d7c`)
+### 8. Vegetation polygons on several threads: `--threads`
 
 The vegetation of the `vectortiles` step (3.6 s for nine sheets) split as follows: grid 0.54 s, naming the areas 0.13 s, tracing 0.44 s, smoothing
 0.58 s, union 0.52 s, clipping to the parent 0.78 s, simplification and projection 0.33 s.
@@ -192,7 +174,7 @@ a PROJ string, and refuses a geographic CRS. The output for TM35FIN is **byte-id
 faster (4.97 s against 5.47 s). Tests: pyproj reference points for EPSG:3067, 3006, 25832, 32633, 32735, 3035 and a PROJ string to under 1 mm, the national grids on an old
 datum (EPSG:28992, 27700, 2056) to a few metres, and the name parsing and the errors. There are now 106 tests.
 
-### 10. Overview zoom z13 (`6b61304`)
+### 10. Overview zoom z13
 
 z14 alone was too heavy at small zooms: the same land area needs four times the number of z14 tiles, and zoom 13 would draw tens of thousands of lines at
 once. `pullauta vectortiles` now makes **z13 tiles** in addition to z14 (`--overview-zoom N`, default 13, `none` = z14 only), with fewer and simpler features
@@ -209,7 +191,7 @@ tiles first, because the ids order that way).
 One z13 tile covers four times the area but is about the same size as a z14 tile (Tampere 31.6 kB vs 36.2 kB, Skellefteå 36.9 kB vs 26.3 kB), i.e. about four
 times lighter per area. The tile server supports several zooms in its archives (it checks the header's minZ..maxZ), so no change to the server was needed.
 
-### 11. A slow block profiled: clipping to the parent (`ac5fb87`)
+### 11. A slow block profiled: clipping to the parent
 
 The Skellefteå centre block in Sweden (10 sheets, 62 km², 26 200 polygons) took 125 s, Tampere's 81 km² took 5 s. Profiling (one thread): reading 7.8 s,
 grid 0.5 s, contours/smoothing/union 2.6 s, **clipping to the parent 122.8 s**, simplification and projection 0.6 s. Clipping a nested area to its parent with
@@ -221,7 +203,7 @@ smoothed parent's edge by at most the distance the smoothing moves the outline),
 The block went from 146 s → **28 s** on one thread, and the vegetation area changed by 0.0002 %. Tampere's result is byte-identical. All 14 Swedish blocks:
 237 s → **84 s** (2 in parallel, 2 threads; CPU 470 s → 63 s).
 
-### 12. Joining the cliff pieces (`ac5fb87`)
+### 12. Joining the cliff pieces
 
 Karttapullautin draws cliffs as short (two-point) pieces. Pieces of the same kind (`cliff2`/`cliff3`/`cliff4`) whose end points are under 2 m apart are
 joined into chains (`join_lines`: greedy, the nearest end point first from the tail and then from the head) and the chains are simplified by 0.5 m.
@@ -287,16 +269,7 @@ thresholds are tuned for sparse data; an estimate, not tested).
 
 ## The whole chain (nine-sheet test area)
 
-| Step | Time |
-|---|---|
-| karttapullautin, nine sheets one after another | 69 s |
-| `stitch_veg.py` (mosaic and water cells) | 4 s |
-| `vegetation_polygons.py` (mosaic) | 53 s |
-| `build_mvt.py` | 24 s |
-| **Total** | **150 s (16.7 s per sheet)** |
-
-The Python part was over half the time (cProfile showed no single bottleneck). It has been moved to Rust (section 6): `pullauta vectortiles` takes **5.3 s** for the
-same area, which makes the whole chain karttapullautin 69 s + 5.3 s = **74 s (8.2 s per sheet)**.
+Karttapullautin on the nine sheets one after another takes 69 s, and `pullauta vectortiles` **5.3 s** for the same area, so the whole chain is **74 s (8.2 s per sheet)**.
 
 ## Choices about the data size (tiles)
 
@@ -320,27 +293,8 @@ These do not change karttapullautin but the size of the MVT tiles:
 ## What was not done
 
 - GPU computing was not tried: the heavy steps are branching geometry, and the measurements put the bottlenecks elsewhere (loops, copies).
-- The Rust version's polygons are not byte-identical with Python's (simplification without JTS's intersection checks), and for large areas (a whole country) the
-  build should be done block by block: now all features are in memory at once.
+- For large areas (a whole country) the build should be done block by block: now all features of a run folder are in memory at once.
 - The `thinfactor` setting (thinning of the points) was not used in production, because it would change the result; it was used only to measure the effect of density.
 - Speeding up the contour segment search and chaining (running the levels in parallel, a grid index instead of the HashMap) was not implemented.
 - The undergrowth and cliff thresholds were not tuned for the 5p or Swedish data.
 - The stamping of the curves was not changed, because the measurement did not show it to be a bottleneck.
-
-## Commits (branches `render-optimization` and `vectortiles-rust`)
-
-| Commit | Content |
-|---|---|
-| `60d5f5a` | `render_both`, `render_nodepressions`, `resize_nearest` |
-| `e5311fe` | `NearestView`, row by row undergrowth, rebuilding the base |
-| `71617b9` | knoll detection: `PointGrid` and `Vec` elevations |
-| `1ad340b` | `vector_output`, `watercells`, DXF of the final layers only |
-| `c7161d8`, `672236e`, `621c667` | branch `vectortiles-rust`: projection, MVT, PMTiles, layers, vegetation and the `vectortiles` command |
-| `0b0e242` | this document: Python steps to Rust |
-| `4b7a12f` | contours: only the cells a level crosses |
-| `6a03af6`, `4437d7c` | vegetation on several threads, `--threads` (default 2) |
-| `cc843ed` | SWEREF 99 TM, `--crs` |
-| `6b61304` | z13 overview level, `--overview-zoom` |
-| `ac5fb87` | joining cliff pieces, clipping only for a small parent |
-| `b50c025` | scan years in the tiles |
-| (next) | cliff clusters, the `size` class |
