@@ -63,9 +63,25 @@ fn read_pgw(path: &Path) -> anyhow::Result<(i64, i64)> {
     Ok((v[4].round() as i64, v[5].round() as i64))
 }
 
+/// Where the files of a pullautin run are (`vegetation.png`, the `.dxf.bin` layers ...): the `temp` folder of the run folder, or the folder itself when it
+/// has no `temp` folder (a `temp`, `temp1` ... folder of the working directory, or one saved by the batch mode's `savetempfolders`: `temp_<name>_dir`)
+pub fn temp_of(folder: &Path) -> PathBuf {
+    let temp = folder.join("temp");
+    if temp.is_dir() {
+        temp
+    } else {
+        folder.to_path_buf()
+    }
+}
+
+/// Whether a folder is a pullautin run: it has a `temp` folder, or it is itself a temp folder (it has the `vegetation.png` of a `vector_output = 1` run)
+pub fn is_run(folder: &Path) -> bool {
+    folder.join("temp").is_dir() || folder.join("vegetation.png").is_file()
+}
+
 /// The map coordinates of a sheet's raster: (min x, min y, max x, max y), from `vegetation.pgw` and the size in the PNG header
 pub fn sheet_bounds(folder: &Path) -> anyhow::Result<(f64, f64, f64, f64)> {
-    let temp = folder.join("temp");
+    let temp = temp_of(folder);
     let (x0, y0) = read_pgw(&temp.join("vegetation.pgw"))?;
     let reader = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(
         temp.join("vegetation.png"),
@@ -76,7 +92,7 @@ pub fn sheet_bounds(folder: &Path) -> anyhow::Result<(f64, f64, f64, f64)> {
 }
 
 fn read_sheet(folder: &Path) -> anyhow::Result<Sheet> {
-    let temp = folder.join("temp");
+    let temp = temp_of(folder);
     let (x0, y0) = read_pgw(&temp.join("vegetation.pgw"))?;
 
     let mut decoder = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(

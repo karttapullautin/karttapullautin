@@ -79,7 +79,7 @@ pub fn sheet_scan_year(folder: &Path) -> Option<u16> {
     let valid = |y: u16| (2000..=2063).contains(&y).then_some(y);
     for path in [
         folder.join("scan_year.txt"),
-        folder.join("temp").join("scan_year.txt"),
+        raster::temp_of(folder).join("scan_year.txt"),
     ] {
         if let Ok(text) = std::fs::read_to_string(path)
             && let Some(year) = text.split_whitespace().next().and_then(|t| t.parse().ok())
@@ -87,8 +87,12 @@ pub fn sheet_scan_year(folder: &Path) -> Option<u16> {
             return valid(year);
         }
     }
-    let name = folder.file_name()?.to_str()?.as_bytes();
-    match name {
+    let name = folder.file_name()?.to_str()?;
+    // a folder saved by the batch mode (`savetempfolders`) is called `temp_<name of the laser file>_dir`
+    let name = name
+        .strip_prefix("temp_")
+        .map_or(name, |n| n.strip_suffix("_dir").unwrap_or(n));
+    match name.as_bytes() {
         [b'y', a, b, rest @ ..]
             if a.is_ascii_digit()
                 && b.is_ascii_digit()
@@ -132,15 +136,43 @@ fn scan_years_by_tile(
     years
 }
 
-/// The folders of `runs` that hold a pullautin run (they have a `temp` folder), in name order
+/// The pullautin runs of `runs`, in name order. A run is a folder with a `temp` folder (one folder per laser file), or a temp folder itself (it has the
+/// `vegetation.png` of a `vector_output = 1` run): the `temp_<name>_dir` folders that the batch mode saves with `savetempfolders = 1`, or the `temp`/`temp1`
+/// folders of the working directory. When none of the sub-folders is a run but `runs` itself is one (it has a `temp` folder), `runs` is the only run.
 fn sheet_folders(runs: &Path) -> std::io::Result<Vec<PathBuf>> {
     let mut sheets: Vec<PathBuf> = std::fs::read_dir(runs)?
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.join("temp").is_dir())
+        .filter(|p| p.is_dir() && raster::is_run(p))
         .collect();
     sheets.sort();
+    // the working directory of a batch run also has the `temp`, `temp1` ... folders of its threads, which hold the same files as the last
+    // `temp_<name>_dir` of each thread: where the saved folders exist, only they are used (a file would be in the tiles twice)
+    let saved = |p: &PathBuf| {
+        p.file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with("temp_") && n.ends_with("_dir"))
+    };
+    if sheets.iter().any(saved) {
+        sheets.retain(saved);
+    }
+    if sheets.is_empty() && raster::is_run(runs) {
+        sheets.push(runs.to_path_buf());
+    }
     Ok(sheets)
+}
+
+fn no_runs_message(runs: &Path) -> String {
+    format!(
+        "no pullautin runs in {}.\n\
+         A run folder is a folder that has one sub-folder per laser file, each with the `temp` folder of a pullauta run made with `vector_output = 1`:\n\
+         \x20   runs/sheet1/temp/vegetation.png, runs/sheet2/temp/...   (run `pullauta sheet1.laz` in runs/sheet1, and so on)\n\
+         or, from the batch mode (`batch = 1`), the folders `temp_<name>_dir` that `savetempfolders = 1` saves in the working directory:\n\
+         \x20   pullauta vectortiles . out   (in the folder that has temp_<name>_dir folders)\n\
+         A single run also works: the folder that has the `temp` folder. The batch mode's own `temp1`, `temp2` ... folders hold only the last file of each \
+         thread, so use `savetempfolders = 1`. See doc/vectortiles.md.",
+        runs.display()
+    )
 }
 
 fn mercator_to_degrees(x: f64, y: f64) -> (f64, f64) {
@@ -152,15 +184,11 @@ pub fn build(runs: &Path, out_dir: &Path, options: &BuildOptions) -> anyhow::Res
     let started = std::time::Instant::now();
     let projection = options.crs.projection();
     let sheets = sheet_folders(runs)?;
-    anyhow::ensure!(
-        !sheets.is_empty(),
-        "no pullautin runs (folders with a temp folder) in {}",
-        runs.display()
-    );
+    anyhow::ensure!(!sheets.is_empty(), "{}", no_runs_message(runs));
 
     let mut features = Features::default();
     for sheet in &sheets {
-        features.add_sheet(&sheet.join("temp"), &projection)?;
+        features.add_sheet(&raster::temp_of(sheet), &projection)?;
     }
     info!(
         "read {} sheets: {} contours, {} formlines, {} cliffs, {} knolls ({:.1?})",
@@ -337,5 +365,99 @@ mod scan_year_tests {
         for p in [f, g, h] {
             let _ = std::fs::remove_dir_all(p);
         }
+    }
+}
+
+#[cfg(test)]
+mod run_folder_tests {
+    use super::*;
+
+    fn tree(name: &str, files: &[&str]) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("vt_runs_{}_{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        for f in files {
+            let path = root.join(f);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"").unwrap();
+        }
+        root
+    }
+
+    fn names(runs: &Path) -> Vec<String> {
+        sheet_folders(runs)
+            .unwrap()
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn a_folder_of_run_folders_each_with_a_temp_folder() {
+        let r = tree(
+            "folders",
+            &[
+                "a/temp/vegetation.png",
+                "b/temp/vegetation.png",
+                "out/notes.txt",
+            ],
+        );
+        assert_eq!(names(&r), ["a", "b"]);
+        let _ = std::fs::remove_dir_all(r);
+    }
+
+    #[test]
+    fn a_single_run_folder_is_its_own_run() {
+        // the run folder itself is given: it has the temp folder (here without a vegetation.png, so that the temp folder is not taken for a run)
+        let r = tree("single", &["temp/out2.dxf.bin"]);
+        let sheets = sheet_folders(&r).unwrap();
+        assert_eq!(sheets, std::slice::from_ref(&r));
+        assert_eq!(raster::temp_of(&sheets[0]), r.join("temp"));
+        let _ = std::fs::remove_dir_all(r);
+    }
+
+    #[test]
+    fn a_working_directory_with_a_temp_folder_that_was_renamed_from_temp1() {
+        // the batch run's temp1 renamed to temp, run as `pullauta vectortiles . out`
+        let r = tree("renamed", &["temp/vegetation.png", "pullautus1.png"]);
+        let sheets = sheet_folders(&r).unwrap();
+        assert_eq!(sheets.len(), 1);
+        assert_eq!(raster::temp_of(&sheets[0]), sheets[0]);
+        let _ = std::fs::remove_dir_all(r);
+    }
+
+    #[test]
+    fn the_folders_saved_by_the_batch_mode_win_over_the_thread_folders() {
+        let r = tree(
+            "batch",
+            &[
+                "temp_y25g017-71750_7825_25_dir/vegetation.png",
+                "temp_y25g017-71775_7825_25_dir/vegetation.png",
+                "temp1/vegetation.png",
+                "temp2/vegetation.png",
+                "temp/vegetation.png",
+            ],
+        );
+        assert_eq!(
+            names(&r),
+            [
+                "temp_y25g017-71750_7825_25_dir",
+                "temp_y25g017-71775_7825_25_dir"
+            ]
+        );
+        // the folder is the temp folder itself, and its year is in the name of the laser file
+        let first = &sheet_folders(&r).unwrap()[0];
+        assert_eq!(raster::temp_of(first), *first);
+        assert_eq!(sheet_scan_year(first), Some(2025));
+        let _ = std::fs::remove_dir_all(r);
+    }
+
+    #[test]
+    fn nothing_found_says_what_a_run_folder_is() {
+        let r = tree("none", &["x/readme.txt"]);
+        assert!(sheet_folders(&r).unwrap().is_empty());
+        let message = no_runs_message(&r);
+        assert!(message.contains("temp_<name>_dir") && message.contains("savetempfolders"));
+        let _ = std::fs::remove_dir_all(r);
     }
 }

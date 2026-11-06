@@ -19,15 +19,24 @@ Lantmäteriet's open laser data and building a large area in blocks.
 ## Pipeline
 
 ```text
-LAZ/LAS sheets --pullauta (vector_output=1)--> temp/*.dxf.bin, vegetation.png, water.txt   (one run folder per sheet)
+LAZ/LAS sheets --pullauta (vector_output=1)--> temp/*.dxf.bin, vegetation.png, water.txt   (the temp folder of each run)
 run folders    --pullauta vectortiles-------> map.pmtiles (+ metadata.json, tiles/z/x/y.pbf)
 ```
 
 1. In `pullauta.ini` set `vector_output = 1` (and `output_dxf = 0`). The run then skips the PNG maps and writes, in `temp/`, the layers as
    `out2.dxf.bin` (contours), `formlines.dxf.bin`, `c2g.dxf.bin` and `c3g.dxf.bin` (cliffs), `dotknolls.dxf.bin`, the vegetation raster
    `vegetation.png` + `vegetation.pgw` (1 m pixels, indexed PNG) and `water.txt` (the 3 m cells that contain water-class points).
-   Run it once per sheet, each in its own folder.
-2. `pullauta vectortiles <folder of runs> <output folder> [options]`: every sub-folder with a `temp` folder is a sheet.
+2. `pullauta vectortiles <run folder> <output folder> [options]`. The **run folder** is where the `temp` folders of the runs are. Any of these layouts works:
+
+   | Layout | How it is made | Command |
+   |---|---|---|
+   | one folder per laser file, each with its `temp` folder | run `pullauta sheet1.laz` in `runs/sheet1/`, `pullauta sheet2.laz` in `runs/sheet2/` (`examples/laz-to-pmtiles.sh` does this) | `pullauta vectortiles runs out` |
+   | **the batch mode's saved temp folders** `temp_<name of the laser file>_dir` | `batch = 1` with `vector_output = 1` and **`savetempfolders = 1`**: after each file the whole temp folder is copied to `temp_<name>_dir` in the working directory | `pullauta vectortiles . out` in that directory |
+   | a single run | the folder that has the `temp` folder (also a `temp` folder renamed from `temp1`) | `pullauta vectortiles . out` |
+
+   In batch mode the threads' own `temp1`, `temp2` ... folders are overwritten by every file and hold only the last one of the thread, so give `savetempfolders = 1`.
+   Where `temp_<name>_dir` folders exist, they are used and the `temp*` folders of the threads are left out (the same files would be in the tiles twice).
+   A laser file's year (shown in the attribution of a web map) is read from a `scan_year.txt` in the folder, or from the file name when it starts with `yYY` (`y25g017-...` = 2025).
 
 | Option | Meaning |
 |---|---|
@@ -36,7 +45,7 @@ run folders    --pullauta vectortiles-------> map.pmtiles (+ metadata.json, tile
 | `--crs <name>` | the coordinate system of the runs, **any projected CRS in metres** (default `tm35fin`): an EPSG code (`3067`, `EPSG:25832`), a UTM zone (`utm33n`, `utm35s`, `etrs89utm32`), `tm35fin`, `sweref99tm` or a PROJ string (`"+proj=utm +zone=33 +ellps=GRS80 +units=m"`); see below |
 | `--overview-zoom N\|none` | a lighter, simplified zoom N below z14 (default 13); `none` = only z14 |
 
-A folder of runs can be any size, but the vegetation of all sheets is joined into one mosaic (one byte per metre), so build large areas in blocks of
+A run folder can hold any number of runs, but the vegetation of all sheets is joined into one mosaic (one byte per metre), so build large areas in blocks of
 about 12 km (5 x 5 sheets) and let the tile server merge the archives.
 
 ## Tiles

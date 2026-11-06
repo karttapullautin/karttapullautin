@@ -197,8 +197,9 @@ fn main() {
             }
             if positional.len() < 2 {
                 eprintln!(
-                    "USAGE: pullauta vectortiles <folder of pullautin runs> <output folder> [--no-tile-files] [--threads N] [--crs <name>] [--overview-zoom N|none]\n\
-                     Every folder of runs that has a temp folder is a sheet: pullautin must have been run with vector_output=1\n\
+                    "USAGE: pullauta vectortiles <run folder> <output folder> [--no-tile-files] [--threads N] [--crs <name>] [--overview-zoom N|none]\n\
+                     The run folder has the pullautin runs, made with vector_output=1: one sub-folder per laser file with its temp folder, or the temp_<name>_dir folders that the batch mode saves with savetempfolders=1\n\
+                 (or the folder that has the temp folder of a single run).\n\
                      (temp must hold the .dxf.bin files of the layers, vegetation.png, vegetation.pgw and water.txt).\n\
                      Writes map.pmtiles and metadata.json, and the tiles as tiles/z/x/y.pbf unless --no-tile-files is given.\n\
                      --threads N sets the threads of the vegetation polygons (default 2, 0 = all cores, 1 = one thread).\n\
@@ -220,7 +221,10 @@ fn main() {
                 std::path::Path::new(positional[1]),
                 &options,
             )
-            .unwrap();
+            .unwrap_or_else(|e| {
+                eprintln!("vectortiles: {e}");
+                std::process::exit(1)
+            });
             info!("done: {} tiles from {} sheets", stats.tiles, stats.sheets);
             return;
         }
