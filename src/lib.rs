@@ -19,6 +19,9 @@ pub mod process;
 pub mod render;
 pub mod util;
 pub mod vec2d;
+// reads and writes files and uses clocks: not for the browser build
+#[cfg(not(target_family = "wasm"))]
+pub mod vectortiles;
 pub mod vegetation;
 
 #[cfg(feature = "shapefile")]
