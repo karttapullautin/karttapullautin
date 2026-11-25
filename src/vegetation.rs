@@ -295,6 +295,12 @@ pub fn makevege(
     let img_width = (w_block as f64 * block) as u32;
     let img_height = (h_block as f64 * block) as u32;
 
+    // The images are georeferenced by their top-left corner (xmin, ymax), see the pgw files written below and
+    // render.rs, which draws everything else relative to that corner. The grids above start at (xmin, ymin) and the
+    // image height is rounded up to whole blocks, so rows must be counted down from ymax, not up from the bottom of
+    // the image: the two differ by up to a block whenever the height is not a multiple of the block size.
+    let extent_y = ymax - ymin;
+
     // render yellow as multiple small squares
     let mut imgye2 = PalettedImage::new(
         img_width,
@@ -314,8 +320,13 @@ pub fn makevege(
                 }
             }
             if ghit2 as f64 / (highhit2 as f64 + ghit2 as f64 + RATIO_EPSILON) > yellowthreshold {
+                // the 2x2 cells cover the 6 m window [3x, 3x + 6) x [3y, 3y + 6): draw the square around its centre
                 imgye2.draw_filled_rect(
-                    Rect::at(x as i32 * 3 + 2, (h_3 as i32 - y as i32) * 3 - 3).of_size(3, 3),
+                    Rect::at(
+                        x as i32 * 3 + 2,
+                        (extent_y - y as f64 * 3.0).round() as i32 - 4,
+                    )
+                    .of_size(3, 3),
                     PaletteColorEnum::Yellow2.to_color(),
                 );
             }
@@ -388,10 +399,11 @@ pub fn makevege(
                     }
                 }
                 if greenshade > 0 {
+                    // cell (x, y) holds the points of [x, x + 1) x [y, y + 1) blocks: draw it there
                     imggr1.draw_filled_rect(
                         Rect::at(
-                            ((x as f64 - 0.5) * block) as i32 - addition,
-                            (((h_block as f64 - y as f64) - 0.5) * block) as i32 - addition,
+                            (x as f64 * block).floor() as i32 - addition,
+                            (extent_y - (y + 1) as f64 * block).round() as i32 - addition,
                         )
                         .of_size(
                             (block as i32 + addition) as u32,
@@ -584,6 +596,8 @@ pub fn makevege(
 
     let bf32 = block as f32;
     let hf32 = h_block as f32;
+    // rows of the undergrowth images are counted down from ymax as well
+    let top_f32 = extent_y as f32;
     let ww = w_block as f32 * bf32;
     let hh = hf32 * bf32;
     let mut x = 0.0_f32;
@@ -614,11 +628,11 @@ pub fn makevege(
                     &mut imgug,
                     (
                         tmpfactor * (x + bf32 * 3.0),
-                        tmpfactor * (hf32 * bf32 - y - bf32 * 3.0),
+                        tmpfactor * (top_f32 - y - bf32 * 3.0),
                     ),
                     (
                         tmpfactor * (x + bf32 * 3.0),
-                        tmpfactor * (hf32 * bf32 - y + bf32 * 3.0),
+                        tmpfactor * (top_f32 - y + bf32 * 3.0),
                     ),
                     PaletteColorEnum::Undergrowth.to_color(),
                 );
@@ -626,11 +640,11 @@ pub fn makevege(
                     &mut imgug,
                     (
                         tmpfactor * (x + bf32 * 3.0) + 1.0,
-                        tmpfactor * (hf32 * bf32 - y - bf32 * 3.0),
+                        tmpfactor * (top_f32 - y - bf32 * 3.0),
                     ),
                     (
                         tmpfactor * (x + bf32 * 3.0) + 1.0,
-                        tmpfactor * (hf32 * bf32 - y + bf32 * 3.0),
+                        tmpfactor * (top_f32 - y + bf32 * 3.0),
                     ),
                     PaletteColorEnum::Undergrowth.to_color(),
                 );
@@ -638,11 +652,11 @@ pub fn makevege(
                     &mut imgug,
                     (
                         tmpfactor * (x - bf32 * 3.0),
-                        tmpfactor * (hf32 * bf32 - y - bf32 * 3.0),
+                        tmpfactor * (top_f32 - y - bf32 * 3.0),
                     ),
                     (
                         tmpfactor * (x - bf32 * 3.0),
-                        tmpfactor * (hf32 * bf32 - y + bf32 * 3.0),
+                        tmpfactor * (top_f32 - y + bf32 * 3.0),
                     ),
                     PaletteColorEnum::Undergrowth.to_color(),
                 );
@@ -650,41 +664,35 @@ pub fn makevege(
                     &mut imgug,
                     (
                         tmpfactor * (x - bf32 * 3.0) + 1.0,
-                        tmpfactor * (hf32 * bf32 - y - bf32 * 3.0),
+                        tmpfactor * (top_f32 - y - bf32 * 3.0),
                     ),
                     (
                         tmpfactor * (x - bf32 * 3.0) + 1.0,
-                        tmpfactor * (hf32 * bf32 - y + bf32 * 3.0),
+                        tmpfactor * (top_f32 - y + bf32 * 3.0),
                     ),
                     PaletteColorEnum::Undergrowth.to_color(),
                 );
 
                 if vege_bitmode {
-                    draw_undergrowth_bit(&mut img_ug_bit, x, hf32 * bf32 - y, bf32, tmpfactor, 0x01)
+                    draw_undergrowth_bit(&mut img_ug_bit, x, top_f32 - y, bf32, tmpfactor, 0x01)
                 }
             }
             if value > uglimit2 {
                 draw_line_segment_mut(
                     &mut imgug,
-                    (tmpfactor * x, tmpfactor * (hf32 * bf32 - y - bf32 * 3.0)),
-                    (tmpfactor * x, tmpfactor * (hf32 * bf32 - y + bf32 * 3.0)),
+                    (tmpfactor * x, tmpfactor * (top_f32 - y - bf32 * 3.0)),
+                    (tmpfactor * x, tmpfactor * (top_f32 - y + bf32 * 3.0)),
                     PaletteColorEnum::Undergrowth.to_color(),
                 );
                 draw_line_segment_mut(
                     &mut imgug,
-                    (
-                        tmpfactor * x + 1.0,
-                        tmpfactor * (hf32 * bf32 - y - bf32 * 3.0),
-                    ),
-                    (
-                        tmpfactor * x + 1.0,
-                        tmpfactor * (hf32 * bf32 - y + bf32 * 3.0),
-                    ),
+                    (tmpfactor * x + 1.0, tmpfactor * (top_f32 - y - bf32 * 3.0)),
+                    (tmpfactor * x + 1.0, tmpfactor * (top_f32 - y + bf32 * 3.0)),
                     PaletteColorEnum::Undergrowth.to_color(),
                 );
 
                 if vege_bitmode {
-                    draw_undergrowth_bit(&mut img_ug_bit, x, hf32 * bf32 - y, bf32, tmpfactor, 0x02)
+                    draw_undergrowth_bit(&mut img_ug_bit, x, top_f32 - y, bf32, tmpfactor, 0x02)
                 }
             }
 
@@ -946,6 +954,251 @@ mod tests {
                 );
                 assert!(image.pixels().all(|p| [0, category].contains(&p.0[0])));
             }
+        }
+    }
+
+    // --- alignment of the rasters with the points they are computed from ---
+    //
+    // The scenes are blocks of points with known edges on a heightmap whose origin is not zero and whose height is
+    // 0, 1 and 2 m short of a multiple of the 3 m block, so that an image anchored to the wrong edge shows up.
+
+    const X0: f64 = 1000.0;
+    const Y0: f64 = 5000.0;
+    const WIDTH_M: usize = 102;
+
+    struct Scene {
+        yellow: GrayImage,
+        green: GrayImage,
+        undergrowth_bit: GrayImage,
+        /// first and last row of undergrowth.png that carry stripes, in metres from the top of the image
+        undergrowth_rows_m: (f64, f64),
+        /// top-left corner of the images, as written to vegetation.pgw
+        corner: (f64, f64),
+    }
+
+    fn point(x: f64, y: f64, z: f32, classification: u8, returns: (u8, u8)) -> XyzRecord {
+        XyzRecord {
+            x: X0 + x,
+            y: Y0 + y,
+            z,
+            classification,
+            number_of_returns: returns.0,
+            return_number: returns.1,
+            ..Default::default()
+        }
+    }
+
+    /// Runs `makevege` on a flat heightmap of 2 m cells, `WIDTH_M` wide and `height_m` high, with one lattice of
+    /// points per metre given by `at(x, y)` (the centre of each square metre).
+    fn scene(height_m: usize, at: impl Fn(f64, f64) -> Vec<XyzRecord>) -> Scene {
+        // every setting the scenes depend on is fixed here, whatever the pullauta.ini of the working directory says
+        let mut config = Config::load_or_create_default().unwrap();
+        config.vege_bitmode = true;
+        config.greendetectsize = 3.0;
+        config.vegezoffset = 0.0;
+        config.vegethin = 0;
+        config.scalefactor = 1.0;
+        config.addition = 0;
+        config.med = 0;
+        config.med2 = 0;
+        config.medyellow = 0;
+        config.proceed_yellows = false;
+        config.uglimit = 0.35;
+        config.uglimit2 = 0.56;
+        config.yellowheight = 0.9;
+        config.yellowthreshold = 0.9;
+        config.yellowfirstlast = 1;
+        config.greenground = 0.9;
+        config.greenhigh = 2.0;
+        config.topweight = 0.8;
+        config.pointvolumefactor = 0.1;
+        config.pointvolumeexponent = 1.0;
+        config.firstandlastreturnasground = 3;
+        config.firstandlastfactor = 1.0;
+        config.lastfactor = 1.0;
+        config.zones = vec![Zone {
+            low: 1.0,
+            high: 2.65,
+            roof: 99.0,
+            factor: 1.0,
+        }];
+        config.thresholds = vec![(0.2, 99.0, 0.1)];
+        config.greenshades = vec![0.2, 0.35, 0.5, 0.7, 1.3, 2.6, 4.0];
+        config.buildings = 0;
+        config.water = 0;
+        config.waterele = -999.0;
+        let fs = MemoryFileSystem::new();
+        let folder = Path::new("vegetation-alignment-test");
+        fs.create_dir_all(folder).unwrap();
+        HeightMap {
+            xoffset: X0,
+            yoffset: Y0,
+            scale: 2.0,
+            grid: Vec2D::new(WIDTH_M / 2, height_m / 2, 0.0),
+        }
+        .to_file(&fs, folder.join("xyz2.hmap"))
+        .unwrap();
+        let mut writer = XyzInternalWriter::new(fs.create(folder.join("xyztemp.xyz.bin")).unwrap());
+        for i in 0..WIDTH_M {
+            for j in 0..height_m {
+                writer
+                    .write_records(&at(i as f64 + 0.5, j as f64 + 0.5))
+                    .unwrap();
+            }
+        }
+        drop(writer.finish().unwrap());
+        makevege(&fs, &config, folder).unwrap();
+
+        let pgw: Vec<f64> = fs
+            .open(folder.join("vegetation.pgw"))
+            .unwrap()
+            .lines()
+            .map(|line| line.unwrap().trim().parse().unwrap())
+            .collect();
+        assert_eq!(pgw[..4], [1.0, 0.0, 0.0, -1.0]);
+        let mask = |name: &str| {
+            let mut image = fs.read_image_png(folder.join(name)).unwrap().to_luma8();
+            // everything that is not the white background is drawn
+            image
+                .pixels_mut()
+                .for_each(|p| p.0[0] = u8::from(p.0[0] != 255));
+            image
+        };
+        let stripes = fs
+            .read_image_png(folder.join("undergrowth.png"))
+            .unwrap()
+            .to_rgba8();
+        let striped: Vec<u32> = (0..stripes.height())
+            .filter(|&row| (0..stripes.width()).any(|col| stripes.get_pixel(col, row).0[3] != 0))
+            .collect();
+        // undergrowth.png has its own resolution and world file
+        let ug_pgw: Vec<f64> = fs
+            .open(folder.join("undergrowth.pgw"))
+            .unwrap()
+            .lines()
+            .map(|line| line.unwrap().trim().parse().unwrap())
+            .collect();
+        assert_eq!((ug_pgw[4], ug_pgw[5]), (pgw[4], pgw[5]));
+        let to_m = |row: Option<&u32>| row.map_or(f64::NAN, |&row| row as f64 * -ug_pgw[3]);
+        Scene {
+            undergrowth_rows_m: (to_m(striped.first()), to_m(striped.last())),
+            yellow: mask("yellow.png"),
+            green: mask("greens.png"),
+            undergrowth_bit: fs
+                .read_image_png(folder.join("undergrowth_bit.png"))
+                .unwrap()
+                .to_luma8(),
+            corner: (pgw[4], pgw[5]),
+        }
+    }
+
+    /// World bounding box (min x, min y, max x, max y) of the drawn pixels, relative to the scene origin. The
+    /// corner in the pgw file is the top-left corner of the top-left pixel, as render.rs and `watercells` use it.
+    fn drawn_extent(image: &GrayImage, corner: (f64, f64)) -> (f64, f64, f64, f64) {
+        let mut extent = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        for (col, row, p) in image.enumerate_pixels() {
+            if p.0[0] != 0 {
+                let (x, y) = (corner.0 - X0 + col as f64, corner.1 - Y0 - row as f64);
+                extent = (
+                    extent.0.min(x),
+                    extent.1.min(y - 1.0),
+                    extent.2.max(x + 1.0),
+                    extent.3.max(y),
+                );
+            }
+        }
+        assert!(extent.0 < extent.2, "nothing was drawn");
+        extent
+    }
+
+    fn centre(extent: (f64, f64, f64, f64)) -> (f64, f64) {
+        ((extent.0 + extent.2) / 2.0, (extent.1 + extent.3) / 2.0)
+    }
+
+    fn inside(x: f64, y: f64, block: (f64, f64, f64, f64)) -> bool {
+        x >= block.0 && x < block.2 && y >= block.1 && y < block.3
+    }
+
+    #[test]
+    fn yellow_is_drawn_where_the_open_ground_is() {
+        // open ground in a block of whole 3 m cells, forest everywhere else
+        let open = (30.0, 30.0, 60.0, 60.0);
+        for height_m in [102, 104, 106] {
+            let s = scene(height_m, |x, y| {
+                if inside(x, y, open) {
+                    vec![point(x, y, 0.0, 2, (1, 1))]
+                } else {
+                    vec![point(x, y, 10.0, 1, (2, 1))]
+                }
+            });
+            assert_eq!(s.corner, (X0, Y0 + height_m as f64));
+            let drawn = drawn_extent(&s.yellow, s.corner);
+            // a 6 m window is yellow when it is open: the windows fully inside the block, i.e. the block less 1.5 m
+            // on every side, drawn as 3 m squares on a 1 m raster (so half a metre of rounding is left)
+            let (cx, cy) = centre(drawn);
+            assert!(
+                (cx - 45.0).abs() <= 0.5 && (cy - 45.0).abs() <= 0.5,
+                "height {height_m}: yellow {drawn:?} is not centred on the open block {open:?}"
+            );
+            assert_eq!(
+                (drawn.2 - drawn.0, drawn.3 - drawn.1),
+                (27.0, 27.0),
+                "height {height_m}: size of the yellow area"
+            );
+        }
+    }
+
+    #[test]
+    fn green_is_drawn_where_the_undergrowth_is() {
+        // returns at 2 m above the ground in a block of whole 3 m cells, bare ground everywhere else
+        let thicket = (30.0, 36.0, 60.0, 66.0);
+        for height_m in [102, 104, 106] {
+            let s = scene(height_m, |x, y| {
+                let mut points = vec![point(x, y, 0.0, 2, (2, 2))];
+                if inside(x, y, thicket) {
+                    points.push(point(x, y, 2.0, 1, (2, 1)));
+                    points.push(point(x, y, 2.0, 1, (2, 1)));
+                }
+                points
+            });
+            assert_eq!(
+                drawn_extent(&s.green, s.corner),
+                thicket,
+                "height {height_m}: green against the thicket"
+            );
+        }
+    }
+
+    #[test]
+    fn undergrowth_is_drawn_from_the_top_of_the_heightmap() {
+        for height_m in [102, 104, 106] {
+            // low vegetation in the 18 m undergrowth cell [18, 36) x [18, 36), marked around its corner (18, 18)
+            let s = scene(height_m, |x, y| {
+                if inside(x, y, (18.0, 18.0, 36.0, 36.0)) {
+                    vec![point(x, y, 0.6, 1, (1, 1))]
+                } else {
+                    vec![point(x, y, 0.0, 2, (1, 1))]
+                }
+            });
+            let rows: Vec<u32> = (0..s.undergrowth_bit.height())
+                .filter(|&row| s.undergrowth_bit.get_pixel(18, row).0[0] != 0)
+                .collect();
+            assert!(!rows.is_empty(), "height {height_m}: no undergrowth mark");
+            let middle = (rows[0] + rows[rows.len() - 1]) as f64 / 2.0;
+            assert_eq!(
+                s.corner.1 - Y0 - middle,
+                18.0,
+                "height {height_m}: undergrowth mark at rows {}..={}",
+                rows[0],
+                rows[rows.len() - 1]
+            );
+            // the stripes of undergrowth.png are drawn 9 m up and down from the same point
+            let (first, last) = s.undergrowth_rows_m;
+            let stripes = s.corner.1 - Y0 - (first + last) / 2.0;
+            assert!(
+                (stripes - 18.0).abs() <= 0.5,
+                "height {height_m}: undergrowth stripes around {stripes} m, rows {first}..{last} m"
+            );
         }
     }
 }
